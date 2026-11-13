@@ -1,4 +1,5 @@
 """Configuration classes. All secrets and environment-specific values come from env vars."""
+
 import os
 from datetime import timedelta
 
@@ -15,7 +16,10 @@ DEFAULT_TEST_DB_URL = "postgresql+psycopg://accesshub:accesshub@localhost:5432/a
 
 
 class BaseConfig:
-    SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-change-me")
+    # Dev-only fallbacks (>= 32 bytes for HS256); production refuses to start without real ones.
+    SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-secret-key-change-me-0123456789")
+    # werkzeug hash method; scrypt is the secure default, tests override with a fast one.
+    PASSWORD_HASH_METHOD = os.environ.get("PASSWORD_HASH_METHOD", "scrypt")
 
     # Database
     SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL", DEFAULT_DB_URL)
@@ -23,7 +27,7 @@ class BaseConfig:
     SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True}
 
     # JWT
-    JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "dev-jwt-secret-change-me")
+    JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "dev-only-jwt-secret-change-me-0123456789")
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=15)
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=7)
 
@@ -50,6 +54,7 @@ class TestingConfig(BaseConfig):
     SQLALCHEMY_DATABASE_URI = os.environ.get("TEST_DATABASE_URL", DEFAULT_TEST_DB_URL)
     MAIL_SUPPRESS_SEND = True
     RUN_SCHEDULER = False  # the scheduler never runs under tests
+    PASSWORD_HASH_METHOD = "pbkdf2:sha256:1000"  # fast hashing for tests only
 
 
 class ProductionConfig(BaseConfig):

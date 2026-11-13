@@ -1,4 +1,5 @@
 """WSGI entrypoint for `flask run` (FLASK_APP=wsgi.py) and Gunicorn (`wsgi:app`)."""
+
 from dotenv import load_dotenv
 
 load_dotenv()

@@ -1,15 +1,16 @@
-"""Parent /api blueprint and the health check."""
+"""GET /api/health — liveness + DB connectivity."""
+
 from flask import Blueprint, current_app, jsonify
 from sqlalchemy import text
 
 from ..extensions import db
 
-api_bp = Blueprint("api", __name__, url_prefix="/api")
+health_bp = Blueprint("health", __name__)
 
 
-@api_bp.get("/health")
+@health_bp.get("/health")
 def health():
-    """Liveness + DB connectivity check. Returns 503 if the database is unreachable."""
+    """Returns 503 if the database is unreachable."""
     try:
         db.session.execute(text("SELECT 1"))
         return jsonify(status="ok", db="ok"), 200

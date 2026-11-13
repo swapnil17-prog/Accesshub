@@ -19,10 +19,43 @@ docker compose up --build
 
 The home page calls `/api/health` (through the Vite proxy) and should show **API ok / Database ok**.
 
+### Database and demo data
+
+```bash
+docker compose exec backend flask db upgrade   # apply migrations
+docker compose exec backend flask seed         # demo data (safe to run repeatedly)
+```
+
+Demo accounts (password `Password@123`):
+
+| Email                    | Roles                 |
+|--------------------------|-----------------------|
+| admin@accesshub.dev      | admin, employee       |
+| auditor@accesshub.dev    | auditor, employee     |
+| manager@accesshub.dev    | manager, employee     |
+| owner@accesshub.dev      | app_owner, employee   |
+| employee@accesshub.dev   | employee              |
+
+…plus 10 more employees (e.g. `priya.sharma@accesshub.dev`), 5 applications with workflows,
+and 40 historical requests in mixed states.
+
+### Try the auth API
+
+```bash
+curl -s -X POST localhost:5000/api/auth/login -H "Content-Type: application/json" \
+  -d '{"email":"manager@accesshub.dev","password":"Password@123"}'
+curl -s localhost:5000/api/auth/me -H "Authorization: Bearer <access_token>"
+```
+
+Endpoints: `POST /api/auth/login`, `POST /api/auth/refresh` (refresh token),
+`POST /api/auth/logout` (access token; optional `{"refresh_token": "..."}` to revoke it too),
+`GET /api/auth/me`.
+
 ## Tests
 
 Backend tests use a real Postgres database (`accesshub_test`, created automatically the first
-time the Postgres volume initialises):
+time the Postgres volume initialises). The schema is built by running the Alembic migrations,
+and a test fails if the migrations and models ever drift apart:
 
 ```bash
 docker compose exec backend pytest --cov=app

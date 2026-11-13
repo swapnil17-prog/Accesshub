@@ -1,10 +1,13 @@
-"""Blueprint registration. Feature blueprints are nested under the /api parent blueprint."""
+"""Blueprint registration. Every blueprint lives under the /api prefix."""
+
 from flask import Flask
 
-from .api import api_bp
+from .auth import auth_bp
+from .health import health_bp
+
+API_PREFIX = "/api"
 
 
 def register_blueprints(app: Flask) -> None:
-    # Feature blueprints (auth, requests, approvals, ...) will be nested here, e.g.:
-    #   api_bp.register_blueprint(auth_bp, url_prefix="/auth")
-    app.register_blueprint(api_bp)
+    app.register_blueprint(health_bp, url_prefix=API_PREFIX)
+    app.register_blueprint(auth_bp, url_prefix=f"{API_PREFIX}/auth")

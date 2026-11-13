@@ -1,10 +1,14 @@
 """AccessHub Flask application factory."""
+
 import os
+from pathlib import Path
 
 from flask import Flask
 
 from .config import CONFIGS, ProductionConfig
 from .extensions import cors, db, jwt, mail, migrate
+
+MIGRATIONS_DIR = str(Path(__file__).resolve().parent.parent / "migrations")
 
 
 def create_app(config_name: str | None = None) -> Flask:
@@ -27,13 +31,21 @@ def create_app(config_name: str | None = None) -> Flask:
     app.config.from_object(config_cls)
     app.json.sort_keys = False  # keep response keys in the order we build them
 
+    from . import models  # noqa: F401  (register all models on the metadata)
+
     db.init_app(app)
-    migrate.init_app(app, db)
+    migrate.init_app(app, db, directory=MIGRATIONS_DIR)
     jwt.init_app(app)
     mail.init_app(app)
     cors.init_app(app, resources={r"/api/*": {"origins": app.config["FRONTEND_URL"]}})
 
     from .blueprints import register_blueprints
+    from .cli import register_cli
+    from .errors import register_error_handlers
+    from .jwt_callbacks import register_jwt_callbacks
 
+    register_jwt_callbacks(jwt)
+    register_error_handlers(app)
     register_blueprints(app)
+    register_cli(app)
     return app

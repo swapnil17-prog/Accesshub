@@ -11,7 +11,10 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     // Bind-mounted sources on Windows/macOS Docker don't emit fs events reliably.
-    watch: process.env.VITE_USE_POLLING === 'true' ? { usePolling: true, interval: 300 } : undefined,
+    watch:
+      process.env.VITE_USE_POLLING === 'true'
+        ? { usePolling: true, interval: 1000, ignored: ['**/node_modules/**', '**/dist/**'] }
+        : undefined,
     proxy: {
       '/api': { target: apiTarget, changeOrigin: true },
     },
