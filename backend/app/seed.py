@@ -32,6 +32,7 @@ from .models import (
 )
 from .models.mixins import utcnow
 from .models.user import hash_password
+from .services.workflow import resolve_approver, snapshot_workflow
 
 DEMO_PASSWORD = "Password@123"
 DOMAIN = "accesshub.dev"
@@ -201,23 +202,9 @@ def _seed_apps(users: dict[str, User]) -> list[Application]:
     return apps
 
 
-def _resolve_approver(step: WorkflowStep, requester: User, app: Application, admin: User) -> User:
-    """Seed-local mirror of the workflow engine's resolve_approver (no self-approval)."""
-    if step.approver_type == ApproverType.MANAGER:
-        approver = requester.manager or admin
-    elif step.approver_type == ApproverType.APP_OWNER:
-        approver = app.owner
-    else:
-        approver = step.approver_user or admin
-    if approver is requester:
-        approver = requester.manager or admin
-    return approver
-
-
 class _HistoryBuilder:
-    def __init__(self, rng: random.Random, admin: User, now: datetime) -> None:
+    def __init__(self, rng: random.Random, now: datetime) -> None:
         self.rng = rng
-        self.admin = admin
         self.now = now
 
     def audit(
@@ -276,6 +263,7 @@ class _HistoryBuilder:
             status=status,
             current_step=last_step,
             duration_days=duration,
+            workflow_snapshot=snapshot_workflow(app),
             created_at=created,
             updated_at=created,
         )
@@ -292,7 +280,7 @@ class _HistoryBuilder:
 
         t = created
         for step in steps[:last_step]:
-            approver = _resolve_approver(step, requester, app, self.admin)
+            approver = resolve_approver(step, request)  # same rules as the live engine
             started = t
             decision = Decision.APPROVED if step.step_order < last_step else last_decision
             approval = Approval(
@@ -348,7 +336,7 @@ def _seed_history(users: dict[str, User], apps: list[Application]) -> int:
 
     rng = random.Random(20241112)
     requesters = [u for local, u in users.items() if local not in {"admin", "auditor", "manager", "owner"}]
-    builder = _HistoryBuilder(rng, users["admin"], utcnow())
+    builder = _HistoryBuilder(rng, utcnow())
     statuses = STATUS_MIX[:]
     rng.shuffle(statuses)
     pending_keys: set[tuple[int, int, int]] = set()

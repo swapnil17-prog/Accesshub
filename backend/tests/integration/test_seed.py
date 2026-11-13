@@ -45,6 +45,7 @@ def test_seed_creates_consistent_demo_data_and_is_idempotent(app, db):
         else:
             assert pending == []
         assert all(a.approver_id != req.requester_id for a in req.approvals), "no self-approval"
+        assert len(req.workflow_snapshot) == len(req.application.workflow_steps)
         if req.status == RequestStatus.EXPIRED:
             assert req.expires_at is not None
 

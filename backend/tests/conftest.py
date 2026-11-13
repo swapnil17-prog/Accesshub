@@ -17,6 +17,7 @@ from sqlalchemy.engine import make_url
 from app import create_app
 from app.extensions import db as _db
 from tests.factories import TEST_PASSWORD
+from tests.helpers import Org, make_org
 
 
 def _reset_schema() -> None:
@@ -84,6 +85,11 @@ def login(client: FlaskClient) -> Callable[..., dict]:
         return resp.get_json()
 
     return _login
+
+
+@pytest.fixture()
+def org(db: SQLAlchemy) -> Org:
+    return make_org()
 
 
 def bearer(token: str) -> dict[str, str]:

@@ -69,6 +69,26 @@ class ConflictError(AppError):
     message = "Conflict with the current state of the resource"
 
 
+# --- Workflow domain errors (raised by services, mapped to HTTP by the handlers below) ---
+
+
+class DuplicateRequestError(ConflictError):
+    code = "DUPLICATE_REQUEST"
+    message = "You already have a pending request for this application and access level"
+
+
+class NotAuthorizedError(ForbiddenError):
+    """The user is authenticated and has the role, but may not act on this object."""
+
+    code = "NOT_AUTHORIZED"
+    message = "You are not allowed to act on this item"
+
+
+class InvalidStateError(ConflictError):
+    code = "INVALID_STATE"
+    message = "This action is not allowed in the item's current state"
+
+
 def error_response(
     status: int, code: str, message: str, details: dict[str, Any] | None = None
 ) -> tuple[Response, int]:
