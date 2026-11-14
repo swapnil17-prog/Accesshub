@@ -64,6 +64,21 @@ Endpoints: `POST /api/auth/login`, `POST /api/auth/refresh` (refresh token),
 | `POST /api/approvals/<id>/reject` | assigned approver | `{comment}` required |
 | `POST /api/approvals/<id>/reassign` | admin | `{approver_id, reason}`; resets the step's SLA |
 
+### Emails and background jobs
+
+Emails (HTML + plain text, templates in `backend/app/templates/email/`) are sent after each
+decision commits: approval needed, approved, rejected, escalated, access expiring (7 days
+before) and access expired. Each links into the frontend via `FRONTEND_URL`. In development
+they go to MailHog: open http://localhost:8025.
+
+| Job | Schedule | Run it now |
+|---|---|---|
+| Escalate overdue approvals to the approver's manager (fallback: admin) | every 15 min | `docker compose exec backend flask escalate` |
+| Expire ended access, then send expiry reminders | daily, 02:00 UTC | `docker compose exec backend flask expire` |
+
+The scheduler only starts when `RUN_SCHEDULER=1` (never under tests). It is off in the dev
+compose file; use the commands above. Jobs are idempotent, so running them twice is harmless.
+
 ### Administration and compliance
 
 | Endpoint | Who | Notes |

@@ -1,0 +1,14 @@
+Hi {{ recipient.name }},
+
+{% if recipient.id == new_approver.id -%}
+An overdue approval has been escalated to you because {{ previous_approver.name }} did not respond in time.
+{%- else -%}
+An approval assigned to you was overdue and has been escalated to {{ new_approver.name }}. No further action is needed from you.
+{%- endif %}
+
+Requester:     {{ request.requester.name }}
+Application:   {{ request.application.name }}
+Access level:  {{ request.access_level.name }}
+New due date:  {{ approval.due_at.strftime('%d %b %Y %H:%M UTC') }}
+
+View it here: {{ request_link }}

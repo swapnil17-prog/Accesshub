@@ -1,0 +1,4 @@
+{% extends "email/_base.html" %}
+{% block content %}{% if recipient.id == new_approver.id %}<p style="margin:0;">An overdue approval has been <strong>escalated to you</strong> because {{ previous_approver.name }} did not respond in time.</p>{% else %}<p style="margin:0;">An approval assigned to you was overdue and has been <strong>escalated to {{ new_approver.name }}</strong>. No further action is needed from you.</p>{% endif %}{% endblock %}
+{% block extra_rows %}<tr><td style="padding:4px 12px 4px 0;color:#64748b;">New due date</td><td>{{ approval.due_at.strftime('%d %b %Y %H:%M UTC') }}</td></tr>{% endblock %}
+{% block cta %}{% if recipient.id == new_approver.id %}Review request{% else %}View request{% endif %}{% endblock %}

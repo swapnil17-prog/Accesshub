@@ -1,0 +1,6 @@
+Hi {{ recipient.name }},
+
+Good news: your request for {{ request.application.name }} ({{ request.access_level.name }}) has been approved.
+{% if request.expires_at %}This access expires on {{ request.expires_at.strftime('%d %b %Y') }}.
+{% endif %}
+View it here: {{ request_link }}

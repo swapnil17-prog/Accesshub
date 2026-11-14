@@ -18,7 +18,7 @@ Rules (see CLAUDE.md "Workflow engine rules"):
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -114,7 +114,8 @@ def request_steps(request: AccessRequest) -> list[StepSpec]:
 # --------------------------------------------------------------------------- approver resolution
 
 
-def _any_admin(exclude_user_id: int | None) -> User | None:
+def find_admin(exclude_user_ids: Iterable[int] = ()) -> User | None:
+    """An active admin (lowest id first) who is not one of ``exclude_user_ids``."""
     stmt = (
         select(User)
         .join(User.roles)
@@ -122,8 +123,9 @@ def _any_admin(exclude_user_id: int | None) -> User | None:
         .order_by(User.id)
         .limit(1)
     )
-    if exclude_user_id is not None:
-        stmt = stmt.where(User.id != exclude_user_id)
+    excluded = [i for i in exclude_user_ids if i is not None]
+    if excluded:
+        stmt = stmt.where(User.id.not_in(excluded))
     return db.session.scalar(stmt)
 
 
@@ -150,7 +152,7 @@ def resolve_approver(step: StepLike, request: AccessRequest) -> User:
         if candidate is not None and candidate.is_active and candidate.id != requester.id:
             return candidate
 
-    admin = _any_admin(exclude_user_id=requester.id)
+    admin = find_admin([requester.id])
     if admin is None:
         raise InvalidStateError(
             "No eligible approver could be found for this step",
@@ -164,7 +166,7 @@ def resolve_approver(step: StepLike, request: AccessRequest) -> User:
 
 
 @contextmanager
-def _transaction() -> Iterator[None]:
+def transaction() -> Iterator[None]:
     """Commit on success, roll back everything (business rows and audit rows) on error."""
     try:
         yield
@@ -174,19 +176,20 @@ def _transaction() -> Iterator[None]:
         raise
 
 
-Notification = tuple[str, AccessRequest, list[User]]
+# (event, request, recipients) or (event, request, recipients, extra template context)
+Notification = tuple[Any, ...]
 
 
-def _dispatch(pending: list[Notification]) -> None:
+def dispatch_notifications(pending: list[Notification]) -> None:
     """Send notifications after commit. Failures are logged, never raised."""
-    for event, request, recipients in pending:
+    for event, request, recipients, *rest in pending:
         try:
-            notifications.notify(event, request, recipients)
+            notifications.notify(event, request, recipients, **(rest[0] if rest else {}))
         except Exception:
             logger.exception("Notification %s for request %s failed", event, request.id)
 
 
-def _lock_request(request_id: int) -> AccessRequest:
+def lock_request(request_id: int) -> AccessRequest:
     """SELECT ... FOR UPDATE the request row and refresh it from the database."""
     request = db.session.scalar(
         select(AccessRequest)
@@ -227,7 +230,7 @@ def _open_approval(request: AccessRequest, step: StepSpec, actor: User | None, n
 
 def _locked_pending_approval(approval: Approval, user: User) -> tuple[Approval, AccessRequest]:
     """Lock the approval's request, re-read the approval and check ``user`` may decide it."""
-    request = _lock_request(approval.request_id)
+    request = lock_request(approval.request_id)
     db.session.refresh(approval)
 
     if approval.approver_id != user.id:
@@ -293,7 +296,7 @@ def submit_request(
         raise DuplicateRequestError()
 
     now = utcnow()
-    with _transaction():
+    with transaction():
         request = AccessRequest(
             requester=user,
             application=application,
@@ -324,7 +327,7 @@ def submit_request(
         )
         first = _open_approval(request, StepSpec.from_dict(snapshot[0]), user, now)
 
-    _dispatch([(notifications.APPROVAL_NEEDED, request, [first.approver])])
+    dispatch_notifications([(notifications.APPROVAL_NEEDED, request, [first.approver])])
     return request
 
 
@@ -335,7 +338,7 @@ def approve(approval: Approval, user: User, comment: str | None = None) -> Acces
     approval or request is no longer pending.
     """
     pending: list[Notification] = []
-    with _transaction():
+    with transaction():
         approval, request = _locked_pending_approval(approval, user)
         now = utcnow()
         approval.decision = Decision.APPROVED
@@ -379,7 +382,7 @@ def approve(approval: Approval, user: User, comment: str | None = None) -> Acces
             )
             pending.append((notifications.REQUEST_APPROVED, request, [request.requester]))
 
-    _dispatch(pending)
+    dispatch_notifications(pending)
     return request
 
 
@@ -392,7 +395,7 @@ def reject(approval: Approval, user: User, comment: str | None) -> AccessRequest
     if comment is None:
         raise InvalidInputError(details={"comment": ["A comment is required when rejecting."]})
 
-    with _transaction():
+    with transaction():
         approval, request = _locked_pending_approval(approval, user)
         now = utcnow()
         approval.decision = Decision.REJECTED
@@ -416,7 +419,7 @@ def reject(approval: Approval, user: User, comment: str | None) -> AccessRequest
             new={"status": RequestStatus.REJECTED, "rejected_at_step": approval.step_order},
         )
 
-    _dispatch([(notifications.REQUEST_REJECTED, request, [request.requester])])
+    dispatch_notifications([(notifications.REQUEST_REJECTED, request, [request.requester])])
     return request
 
 
@@ -432,8 +435,8 @@ def reassign(approval: Approval, admin: User, new_approver_id: int, reason: str)
     if not reason:
         raise InvalidInputError(details={"reason": ["A reason is required."]})
 
-    with _transaction():
-        request = _lock_request(approval.request_id)
+    with transaction():
+        request = lock_request(approval.request_id)
         db.session.refresh(approval)
         if approval.decision != Decision.PENDING or request.status != RequestStatus.PENDING:
             raise InvalidStateError("Only pending approvals can be reassigned")
@@ -461,14 +464,14 @@ def reassign(approval: Approval, admin: User, new_approver_id: int, reason: str)
             new={"approver_id": new_approver.id, "due_at": approval.due_at, "reason": reason},
         )
 
-    _dispatch([(notifications.APPROVAL_NEEDED, request, [new_approver])])
+    dispatch_notifications([(notifications.APPROVAL_NEEDED, request, [new_approver])])
     return request
 
 
 def cancel(request: AccessRequest, user: User) -> AccessRequest:
     """Requester withdraws their own PENDING request; open approvals become SKIPPED."""
-    with _transaction():
-        request = _lock_request(request.id)
+    with transaction():
+        request = lock_request(request.id)
         if request.requester_id != user.id:
             raise NotAuthorizedError("Only the requester can cancel this request")
         if request.status != RequestStatus.PENDING:

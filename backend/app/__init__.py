@@ -48,4 +48,8 @@ def create_app(config_name: str | None = None) -> Flask:
     register_error_handlers(app)
     register_blueprints(app)
     register_cli(app)
+
+    from .scheduler import init_scheduler
+
+    init_scheduler(app)  # no-op unless RUN_SCHEDULER=1 (never under testing)
     return app

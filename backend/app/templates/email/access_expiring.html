@@ -1,0 +1,2 @@
+{% extends "email/_base.html" %}
+{% block content %}<p style="margin:0;">Your access expires in <strong>{{ days_left }} day(s)</strong>, on {{ request.expires_at.strftime('%d %b %Y') }}. If you still need it, submit a new request before then.</p>{% endblock %}

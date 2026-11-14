@@ -1,0 +1,6 @@
+Hi {{ recipient.name }},
+
+Your {{ request.application.name }} ({{ request.access_level.name }}) access has expired.
+Submit a new request if you still need it.
+
+View it here: {{ request_link }}

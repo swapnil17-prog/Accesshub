@@ -1,0 +1,10 @@
+Hi {{ recipient.name }},
+
+{{ request.requester.name }} has requested access and it needs your approval.
+
+Application:   {{ request.application.name }}
+Access level:  {{ request.access_level.name }}
+Justification: {{ request.justification }}
+
+Review it here: {{ request_link }}
+Your approval inbox: {{ inbox_link }}

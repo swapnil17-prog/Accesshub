@@ -1,0 +1,4 @@
+{% extends "email/_base.html" %}
+{% block content %}<p style="margin:0;">{{ request.requester.name }} has requested access and it needs your approval.</p>{% endblock %}
+{% block extra_rows %}<tr><td style="padding:4px 12px 4px 0;color:#64748b;">Justification</td><td>{{ request.justification }}</td></tr>{% endblock %}
+{% block cta %}Review request{% endblock %}

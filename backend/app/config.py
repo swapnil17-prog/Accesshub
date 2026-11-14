@@ -43,6 +43,9 @@ class BaseConfig:
     # App
     FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
     RUN_SCHEDULER = _bool("RUN_SCHEDULER")
+    ESCALATION_INTERVAL_MINUTES = int(os.environ.get("ESCALATION_INTERVAL_MINUTES", "15"))
+    DAILY_JOB_HOUR_UTC = int(os.environ.get("DAILY_JOB_HOUR_UTC", "2"))
+    EXPIRY_REMINDER_DAYS = int(os.environ.get("EXPIRY_REMINDER_DAYS", "7"))
 
 
 class DevelopmentConfig(BaseConfig):

@@ -51,6 +51,8 @@ class AccessRequest(TimestampMixin, db.Model):
     current_step: Mapped[int] = mapped_column(default=1, server_default="1")
     duration_days: Mapped[int | None]
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Set when the "expires soon" email goes out, so the daily job reminds only once.
+    expiry_reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Copy of the application's workflow steps taken at submission time, so editing a
     # workflow never changes the chain of a request that is already in flight.
     workflow_snapshot: Mapped[list[dict[str, Any]]] = mapped_column(
