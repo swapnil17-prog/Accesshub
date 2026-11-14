@@ -9,19 +9,21 @@ only the assigned approver (approval.approver_id == current user) can decide.
 from flask import Blueprint
 from flask_jwt_extended import jwt_required
 
-from ..schemas.approval import DecisionSchema, InboxItemSchema
+from ..models import RoleName
+from ..schemas.approval import DecisionSchema, InboxItemSchema, ReassignSchema
 from ..schemas.common import PaginationQuerySchema
 from ..schemas.request import RequestDetailSchema
 from ..services import requests as request_queries
 from ..services import workflow
-from ..utils.decorators import get_current_user
-from ..utils.http import load_args, load_json_optional, paginated
+from ..utils.decorators import get_current_user, role_required
+from ..utils.http import load_args, load_json, load_json_optional, paginated
 
 approvals_bp = Blueprint("approvals", __name__)
 
 _page_schema = PaginationQuerySchema()
 _inbox_schema = InboxItemSchema(many=True)
 _decision_schema = DecisionSchema()
+_reassign_schema = ReassignSchema()
 _detail_schema = RequestDetailSchema()
 
 
@@ -40,6 +42,15 @@ def approve(approval_id: int):
     user = get_current_user()
     result = workflow.approve(workflow.get_approval(approval_id), user, data["comment"])
     return _detail_schema.dump(request_queries.get_request_for_user(result.id, user))
+
+
+@approvals_bp.post("/<int:approval_id>/reassign")
+@role_required(RoleName.ADMIN)
+def reassign(approval_id: int):
+    data = load_json(_reassign_schema)
+    admin = get_current_user()
+    result = workflow.reassign(workflow.get_approval(approval_id), admin, data["approver_id"], data["reason"])
+    return _detail_schema.dump(request_queries.get_request_for_user(result.id, admin))
 
 
 @approvals_bp.post("/<int:approval_id>/reject")

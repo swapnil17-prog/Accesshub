@@ -420,6 +420,51 @@ def reject(approval: Approval, user: User, comment: str | None) -> AccessRequest
     return request
 
 
+def reassign(approval: Approval, admin: User, new_approver_id: int, reason: str) -> AccessRequest:
+    """Admin moves a PENDING approval to someone else (e.g. the approver is on leave).
+
+    The new approver must be active, must not be the requester, and must differ from the
+    current one. They get a fresh SLA window for the step. A reason is required and audited.
+    """
+    if not admin.has_role(RoleName.ADMIN):
+        raise NotAuthorizedError("Only an admin can reassign approvals")
+    reason = (reason or "").strip()
+    if not reason:
+        raise InvalidInputError(details={"reason": ["A reason is required."]})
+
+    with _transaction():
+        request = _lock_request(approval.request_id)
+        db.session.refresh(approval)
+        if approval.decision != Decision.PENDING or request.status != RequestStatus.PENDING:
+            raise InvalidStateError("Only pending approvals can be reassigned")
+        new_approver = db.session.get(User, new_approver_id)
+        if new_approver is None or not new_approver.is_active:
+            raise InvalidInputError(details={"approver_id": ["Must be an active user."]})
+        if new_approver.id == request.requester_id:
+            raise InvalidInputError(
+                details={"approver_id": ["The requester cannot approve their own request."]}
+            )
+        if new_approver.id == approval.approver_id:
+            raise InvalidInputError(details={"approver_id": ["This user is already the approver."]})
+
+        step = next((s for s in request_steps(request) if s.step_order == approval.step_order), None)
+        sla_hours = step.sla_hours if step else 24
+        old = {"approver_id": approval.approver_id, "due_at": approval.due_at}
+        approval.approver = new_approver
+        approval.due_at = utcnow() + timedelta(hours=sla_hours)
+        audit.log_action(
+            admin,
+            AuditAction.APPROVAL_REASSIGNED,
+            ENTITY_APPROVAL,
+            approval.id,
+            old=old,
+            new={"approver_id": new_approver.id, "due_at": approval.due_at, "reason": reason},
+        )
+
+    _dispatch([(notifications.APPROVAL_NEEDED, request, [new_approver])])
+    return request
+
+
 def cancel(request: AccessRequest, user: User) -> AccessRequest:
     """Requester withdraws their own PENDING request; open approvals become SKIPPED."""
     with _transaction():

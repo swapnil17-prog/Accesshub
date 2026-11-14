@@ -5,32 +5,18 @@ Every list query eager-loads the relationships its serializer uses, to avoid N+1
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
-from sqlalchemy import Select, select
+from sqlalchemy import select
 from sqlalchemy.orm import joinedload, selectinload
 
 from ..errors import NotFoundError
 from ..extensions import db
 from ..models import AccessRequest, Approval, Decision, RequestStatus, RoleName, User
+from ..utils.pagination import Page, paginate
 
 # Roles that may read every request.
 READ_ALL_ROLES = (RoleName.AUDITOR, RoleName.ADMIN)
-
-
-@dataclass
-class Page:
-    items: list[Any]
-    page: int
-    per_page: int
-    total: int
-
-
-def paginate(stmt: Select, page: int, per_page: int) -> Page:
-    result = db.paginate(stmt, page=page, per_page=per_page, error_out=False, count=True)
-    return Page(items=list(result.items), page=page, per_page=per_page, total=result.total or 0)
 
 
 def _request_summary_options() -> tuple:

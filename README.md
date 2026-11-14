@@ -62,6 +62,22 @@ Endpoints: `POST /api/auth/login`, `POST /api/auth/refresh` (refresh token),
 | `GET /api/approvals/inbox` | any | my PENDING approvals, soonest due first, with `is_overdue` |
 | `POST /api/approvals/<id>/approve` | assigned approver | optional `{comment}` |
 | `POST /api/approvals/<id>/reject` | assigned approver | `{comment}` required |
+| `POST /api/approvals/<id>/reassign` | admin | `{approver_id, reason}`; resets the step's SLA |
+
+### Administration and compliance
+
+| Endpoint | Who | Notes |
+|---|---|---|
+| `GET /api/applications` | any | active apps (admins: `?include_inactive=true`), `q` search |
+| `POST /api/applications` | admin | `{name, owner_id, description?, access_levels?: [names]}` |
+| `GET/PUT/DELETE /api/applications/<id>` | read: any · edit: admin or that app's owner · delete: admin | DELETE is a soft delete (`is_active=false`) |
+| `GET/POST /api/applications/<id>/access-levels`, `PUT/DELETE .../<level_id>` | admin or owner | levels already used by requests can't be deleted |
+| `GET/PUT /api/applications/<id>/workflow` | read: any · write: admin or owner | PUT replaces the whole list atomically; in-flight requests keep their snapshot |
+| `GET/POST /api/users`, `GET/PUT /api/users/<id>`, `PUT /api/users/<id>/roles` | admin | search `q`, `role`, `is_active`; deactivate with `{"is_active": false}`; manager cycles rejected |
+| `GET /api/users/lookup?q=` | admin, app_owner | brief active users for pickers |
+| `GET /api/audit` | auditor, admin | filters `actor` (id or `system`), `action`, `entity_type`, `entity_id`, `from`, `to` |
+| `GET /api/audit/export.csv` | auditor, admin | streamed CSV, same filters; the export itself is audited |
+| `GET /api/reports/summary` | auditor, admin | counts by status/app, avg approval hours, escalations (30 days), overdue approvals |
 
 The workflow engine lives in `backend/app/services/workflow.py`; its module docstring explains
 the rules (step snapshot, row locking, audit-in-same-transaction, notify-after-commit).
