@@ -1,9 +1,16 @@
-import { configureStore } from '@reduxjs/toolkit';
+import { combineReducers, configureStore } from '@reduxjs/toolkit';
 
-import healthReducer from './healthSlice';
+import approvalsReducer from '../features/approvals/approvalsSlice';
+import authReducer from '../features/auth/authSlice';
 
-export const store = configureStore({
-  reducer: {
-    health: healthReducer,
-  },
+const rootReducer = combineReducers({
+  auth: authReducer,
+  approvals: approvalsReducer,
 });
+
+/** A fresh store; tests pass ``preloadedState`` to start from a known state. */
+export function setupStore(preloadedState) {
+  return configureStore({ reducer: rootReducer, preloadedState });
+}
+
+export const store = setupStore();

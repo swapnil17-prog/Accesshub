@@ -110,6 +110,26 @@ docker compose exec backend pytest --cov=app
 > If you created the Postgres volume before `docker/postgres/init` existed, recreate it with
 > `docker compose down -v` (this deletes local data).
 
+## Frontend
+
+```bash
+cd frontend
+npm install
+npm test          # Vitest + React Testing Library
+npm run lint      # ESLint (zero warnings allowed)
+npm run dev       # http://localhost:5173 (proxies /api to the backend)
+```
+
+- `src/api/client.js` — axios instance; attaches the access token and, on a 401, refreshes
+  once (concurrent requests share one refresh) and retries; signs out if that fails.
+- `src/features/auth/authSlice.js` + `src/hooks/useAuth.js` — session state; tokens live in
+  localStorage; `hasRole(...roles)` is any-of.
+- `src/components/ProtectedRoute.jsx` — `<ProtectedRoute roles={[...]}>` guard (UX only; the
+  API enforces every permission). Unknown paths show a 404 page, missing roles a 403 page.
+- Shared UI in `src/components/`: `DataTable` (sorting, pagination), `StatusBadge`,
+  `ConfirmModal`, `ToastProvider`/`useToast`, `EmptyState`, `Spinner`, `Button`.
+- The login page has one-click demo logins for the five seeded roles.
+
 ## Run the backend without Docker (optional)
 
 Requires Python 3.12 and a reachable Postgres:
