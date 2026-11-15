@@ -129,6 +129,11 @@ npm run dev       # http://localhost:5173 (proxies /api to the backend)
 - Shared UI in `src/components/`: `DataTable` (sorting, pagination), `StatusBadge`,
   `ConfirmModal`, `ToastProvider`/`useToast`, `EmptyState`, `Spinner`, `Button`.
 - The login page has one-click demo logins for the five seeded roles.
+- Requests: **New request** (searchable app picker, access level, justification, duration and a
+  preview of the approval chain), **My requests** (filters kept in the URL, paginated) and a
+  **request detail** page with the step-by-step approval timeline and a cancel button.
+- **Approval inbox**: soonest-due first with overdue highlighting, approve/reject dialogs
+  (rejecting needs a comment), bulk approve, and optimistic updates that roll back on error.
 
 ## Run the backend without Docker (optional)
 

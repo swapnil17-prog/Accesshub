@@ -2,8 +2,12 @@ import { Route, Routes } from 'react-router-dom';
 
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
+import InboxPage from './features/approvals/InboxPage';
 import LoginPage from './features/auth/LoginPage';
 import DashboardPage from './features/dashboard/DashboardPage';
+import MyRequestsPage from './features/requests/MyRequestsPage';
+import NewRequestPage from './features/requests/NewRequestPage';
+import RequestDetailPage from './features/requests/RequestDetailPage';
 import ComingSoonPage from './pages/ComingSoonPage';
 import ForbiddenPage from './pages/ForbiddenPage';
 import NotFoundPage from './pages/NotFoundPage';
@@ -28,12 +32,12 @@ export default function AppRoutes() {
         <Route index element={<DashboardPage />} />
 
         <Route element={<ProtectedRoute roles={EMPLOYEE} />}>
-          <Route path="requests" element={<ComingSoonPage title="My requests" />} />
-          <Route path="requests/new" element={<ComingSoonPage title="New request" />} />
+          <Route path="requests" element={<MyRequestsPage />} />
+          <Route path="requests/new" element={<NewRequestPage />} />
         </Route>
         {/* Approvers and auditors open requests too; the API decides who may see each one. */}
-        <Route path="requests/:requestId" element={<ComingSoonPage title="Request details" />} />
-        <Route path="approvals" element={<ComingSoonPage title="Approval inbox" />} />
+        <Route path="requests/:requestId" element={<RequestDetailPage />} />
+        <Route path="approvals" element={<InboxPage />} />
 
         <Route element={<ProtectedRoute roles={APP_ADMINS} />}>
           <Route path="admin/applications" element={<ComingSoonPage title="Applications" />} />

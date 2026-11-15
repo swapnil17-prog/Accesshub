@@ -1,4 +1,5 @@
 import { forwardRef } from 'react';
+import { Link } from 'react-router-dom';
 
 import Spinner from './Spinner';
 
@@ -7,7 +8,7 @@ const VARIANTS = {
   secondary:
     'bg-white text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus-visible:outline-indigo-600 disabled:text-slate-400',
   danger: 'bg-rose-600 text-white hover:bg-rose-500 focus-visible:outline-rose-600 disabled:bg-rose-300',
-  ghost: 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-indigo-600',
+  ghost: 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-indigo-600 disabled:text-slate-300',
 };
 
 const SIZES = {
@@ -15,6 +16,10 @@ const SIZES = {
   md: 'px-3.5 py-2 text-sm',
   lg: 'px-4 py-2.5 text-sm',
 };
+
+function classes(variant, size, className) {
+  return `inline-flex items-center justify-center gap-2 rounded-md font-semibold shadow-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed ${VARIANTS[variant]} ${SIZES[size]} ${className}`;
+}
 
 const Button = forwardRef(function Button(
   { variant = 'primary', size = 'md', loading = false, disabled, className = '', children, type = 'button', ...props },
@@ -26,7 +31,7 @@ const Button = forwardRef(function Button(
       type={type}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
-      className={`inline-flex items-center justify-center gap-2 rounded-md font-semibold shadow-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed ${VARIANTS[variant]} ${SIZES[size]} ${className}`}
+      className={classes(variant, size, className)}
       {...props}
     >
       {loading ? <Spinner size="sm" className="text-current" /> : null}
@@ -34,5 +39,14 @@ const Button = forwardRef(function Button(
     </button>
   );
 });
+
+/** A router link that looks like a Button (never nest a <button> inside a link). */
+export function ButtonLink({ to, variant = 'primary', size = 'md', className = '', children, ...props }) {
+  return (
+    <Link to={to} className={classes(variant, size, className)} {...props}>
+      {children}
+    </Link>
+  );
+}
 
 export default Button;
