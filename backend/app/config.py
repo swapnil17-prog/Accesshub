@@ -46,6 +46,19 @@ class BaseConfig:
     # Number of trusted reverse proxies in front of the app (nginx in production = 1). With 0,
     # X-Forwarded-* headers are ignored so clients can't spoof the IP written to audit logs.
     PROXY_FIX_HOPS = int(os.environ.get("PROXY_FIX_HOPS", "0"))
+
+    # Brute-force protection for sign-in.
+    # 1) Per-IP rate limit (Flask-Limiter). memory:// is per process, so with N Gunicorn workers
+    #    the effective limit is up to N times higher; point RATELIMIT_STORAGE_URI at Redis
+    #    (redis://host:6379) for one shared counter.
+    RATELIMIT_ENABLED = _bool("RATELIMIT_ENABLED", default=True)
+    RATELIMIT_STORAGE_URI = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
+    RATELIMIT_HEADERS_ENABLED = True
+    LOGIN_RATE_LIMIT = os.environ.get("LOGIN_RATE_LIMIT", "10 per minute")
+    # 2) Per-account lockout, counted from LOGIN_FAILED audit rows in the database, so it holds
+    #    across all workers and containers.
+    LOGIN_LOCKOUT_ATTEMPTS = int(os.environ.get("LOGIN_LOCKOUT_ATTEMPTS", "5"))
+    LOGIN_LOCKOUT_MINUTES = int(os.environ.get("LOGIN_LOCKOUT_MINUTES", "15"))
     ESCALATION_INTERVAL_MINUTES = int(os.environ.get("ESCALATION_INTERVAL_MINUTES", "15"))
     DAILY_JOB_HOUR_UTC = int(os.environ.get("DAILY_JOB_HOUR_UTC", "2"))
     EXPIRY_REMINDER_DAYS = int(os.environ.get("EXPIRY_REMINDER_DAYS", "7"))
@@ -61,6 +74,7 @@ class TestingConfig(BaseConfig):
     MAIL_SUPPRESS_SEND = True
     RUN_SCHEDULER = False  # the scheduler never runs under tests
     PASSWORD_HASH_METHOD = "pbkdf2:sha256:1000"  # fast hashing for tests only
+    RATELIMIT_ENABLED = False  # tests log in many times; the limiter has its own tests
 
 
 class ProductionConfig(BaseConfig):

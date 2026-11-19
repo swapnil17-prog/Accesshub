@@ -7,9 +7,14 @@ from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import CONFIGS, ProductionConfig
-from .extensions import cors, db, jwt, mail, migrate
+from .extensions import cors, db, jwt, limiter, mail, migrate
 
 MIGRATIONS_DIR = str(Path(__file__).resolve().parent.parent / "migrations")
+
+
+def _weak_secret(value: str) -> bool:
+    """Too short, or obviously copied from an example file."""
+    return len(value) < 32 or any(marker in value.lower() for marker in ("change-me", "changeme", "dev-only"))
 
 
 def create_app(config_name: str | None = None) -> Flask:
@@ -27,6 +32,11 @@ def create_app(config_name: str | None = None) -> Flask:
         missing = [name for name in ProductionConfig.REQUIRED_ENV if not os.environ.get(name)]
         if missing:
             raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
+        weak = [name for name in ("SECRET_KEY", "JWT_SECRET_KEY") if _weak_secret(os.environ[name])]
+        if weak:
+            raise RuntimeError(
+                f"Use long random values (32+ chars, not a placeholder) for: {', '.join(weak)}"
+            )
 
     app = Flask(__name__)
     app.config.from_object(config_cls)
@@ -44,6 +54,7 @@ def create_app(config_name: str | None = None) -> Flask:
     migrate.init_app(app, db, directory=MIGRATIONS_DIR)
     jwt.init_app(app)
     mail.init_app(app)
+    limiter.init_app(app)
     cors.init_app(app, resources={r"/api/*": {"origins": app.config["FRONTEND_URL"]}})
 
     from .blueprints import register_blueprints

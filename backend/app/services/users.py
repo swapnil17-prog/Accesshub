@@ -19,6 +19,7 @@ from ..extensions import db
 from ..models import AuditAction, Role, RoleName, User
 from ..utils.pagination import Page, like_pattern, paginate
 from . import audit
+from .passwords import password_problems
 
 ENTITY = "user"
 MAX_CHAIN = 1000  # defensive bound when walking reporting lines
@@ -147,6 +148,12 @@ def _ensure_admin_remains(actor: User, user: User, *, losing_admin: bool) -> Non
 # --------------------------------------------------------------------------- writes
 
 
+def _check_password(password: str, email: str, name: str) -> None:
+    problems = password_problems(password, email=email, name=name)
+    if problems:
+        raise InvalidInputError("Password does not meet the policy", details={"password": problems})
+
+
 def _commit_or_email_conflict() -> None:
     try:
         db.session.commit()
@@ -158,6 +165,7 @@ def _commit_or_email_conflict() -> None:
 def create_user(actor: User, data: dict[str, Any]) -> User:
     """Create a user. ``data``: name, email, password, department?, manager_id?, roles?."""
     _ensure_email_free(data["email"])
+    _check_password(data["password"], data["email"], data["name"])
     manager = validate_manager(None, data.get("manager_id"))
     roles = _roles_by_name(data.get("roles") or [RoleName.EMPLOYEE.value])
     user = User(name=data["name"].strip(), email=data["email"], department=data.get("department"))
@@ -195,6 +203,7 @@ def update_user(actor: User, user_id: int, data: dict[str, Any]) -> User:
         user.is_active = data["is_active"]
     password_changed = bool(data.get("password"))
     if password_changed:
+        _check_password(data["password"], user.email, user.name)
         user.set_password(data["password"])
 
     new = _snapshot(user)

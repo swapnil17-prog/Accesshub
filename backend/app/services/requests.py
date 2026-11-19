@@ -91,6 +91,18 @@ def can_view(request: AccessRequest, user: User) -> bool:
     return any(user.id in (a.approver_id, a.escalated_from_id) for a in request.approvals)
 
 
+def get_approval_for_user(approval_id: int, user: User) -> Approval:
+    """An approval, if ``user`` may see the request it belongs to; otherwise 404.
+
+    Anti-enumeration: outsiders can't tell whether an approval id exists. People who can see
+    the request but aren't the assignee get the workflow's 403 when they try to decide.
+    """
+    approval = db.session.get(Approval, approval_id)
+    if approval is None or not can_view(approval.request, user):
+        raise NotFoundError("Approval not found")
+    return approval
+
+
 def inbox(user: User, *, page: int = 1, per_page: int = 20) -> Page:
     """``user``'s open approvals, the one due soonest first."""
     stmt = (

@@ -69,6 +69,12 @@ class ConflictError(AppError):
     message = "Conflict with the current state of the resource"
 
 
+class TooManyAttemptsError(AppError):
+    status_code = 429
+    code = "TOO_MANY_ATTEMPTS"
+    message = "Too many failed sign-in attempts. Please wait and try again."
+
+
 # --- Workflow domain errors (raised by services, mapped to HTTP by the handlers below) ---
 
 
@@ -111,6 +117,14 @@ def register_error_handlers(app: Flask) -> None:
 
     @app.errorhandler(HTTPException)
     def handle_http_exception(exc: HTTPException):
+        if exc.code == 429:  # Flask-Limiter: keep the JSON shape, say what the limit is
+            response, status = error_response(
+                429,
+                "TOO_MANY_REQUESTS",
+                "Too many requests. Please wait and try again.",
+                {"limit": exc.description},
+            )
+            return response, status
         response, status = error_response(exc.code or 500, _http_code_name(exc), exc.description or "")
         if exc.code == 405 and getattr(exc, "valid_methods", None):
             response.headers["Allow"] = ", ".join(exc.valid_methods)

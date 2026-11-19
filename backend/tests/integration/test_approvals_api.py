@@ -110,12 +110,22 @@ class TestDecisions:
         assert [a["decision"] for a in body["approvals"]] == ["APPROVED", "REJECTED"]
         assert body["approvals"][1]["comment"] == "Use read-only"
 
-    def test_non_assignee_gets_403(self, client, org):
+    def test_non_assignee_who_can_see_the_request_gets_403(self, client, org):
         req = create(client, org.employee, make_app(org.owner))
-        for intruder in (org.colleague, org.admin, org.employee):
-            resp = client.post(f"/api/approvals/{pending_id(req)}/approve", headers=auth(intruder))
-            assert resp.status_code == 403
+        for viewer in (org.admin, org.auditor, org.employee):  # can see it, may not decide it
+            resp = client.post(f"/api/approvals/{pending_id(req)}/approve", headers=auth(viewer))
+            assert resp.status_code == 403, viewer.name
             assert resp.get_json()["error"]["code"] == "NOT_AUTHORIZED"
+
+    def test_outsider_gets_404_so_ids_cannot_be_probed(self, client, org):
+        req = create(client, org.employee, make_app(org.owner))
+        for action, body in (("approve", None), ("reject", {"comment": "no"})):
+            resp = client.post(
+                f"/api/approvals/{pending_id(req)}/{action}", json=body, headers=auth(org.colleague)
+            )
+            assert resp.status_code == 404
+        missing = client.post("/api/approvals/999999/approve", headers=auth(org.colleague))
+        assert missing.status_code == 404  # indistinguishable from an existing approval
 
     def test_double_decision_gets_409(self, client, org):
         req = create(client, org.employee, make_app(org.owner))

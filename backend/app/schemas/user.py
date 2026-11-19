@@ -5,7 +5,6 @@ from .base import BaseSchema
 from .common import PaginationQuerySchema, QuerySchema, UserBriefSchema, not_blank
 
 ROLE_NAMES = [r.value for r in RoleName]
-PASSWORD_MIN = 8
 
 
 class UserSchema(BaseSchema):
@@ -27,7 +26,8 @@ class UserAdminSchema(UserSchema):
 
 
 _name = [validate.Length(max=120), not_blank(1)]
-_password = validate.Length(min=PASSWORD_MIN, max=128)
+# Strength rules (length, variety, blocklist, no name/email) are in services/passwords.py.
+_password = validate.Length(min=1, max=128)
 
 
 class UserCreateSchema(BaseSchema):

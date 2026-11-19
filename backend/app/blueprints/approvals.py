@@ -40,7 +40,7 @@ def inbox():
 def approve(approval_id: int):
     data = load_json_optional(_decision_schema)
     user = get_current_user()
-    result = workflow.approve(workflow.get_approval(approval_id), user, data["comment"])
+    result = workflow.approve(request_queries.get_approval_for_user(approval_id, user), user, data["comment"])
     return _detail_schema.dump(request_queries.get_request_for_user(result.id, user))
 
 
@@ -49,7 +49,9 @@ def approve(approval_id: int):
 def reassign(approval_id: int):
     data = load_json(_reassign_schema)
     admin = get_current_user()
-    result = workflow.reassign(workflow.get_approval(approval_id), admin, data["approver_id"], data["reason"])
+    result = workflow.reassign(
+        request_queries.get_approval_for_user(approval_id, admin), admin, data["approver_id"], data["reason"]
+    )
     return _detail_schema.dump(request_queries.get_request_for_user(result.id, admin))
 
 
@@ -58,5 +60,5 @@ def reassign(approval_id: int):
 def reject(approval_id: int):
     data = load_json_optional(_decision_schema)
     user = get_current_user()
-    result = workflow.reject(workflow.get_approval(approval_id), user, data["comment"])
+    result = workflow.reject(request_queries.get_approval_for_user(approval_id, user), user, data["comment"])
     return _detail_schema.dump(request_queries.get_request_for_user(result.id, user))

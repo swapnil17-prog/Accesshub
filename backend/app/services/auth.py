@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import cache
 from typing import Any
 
+from flask import current_app
 from flask_jwt_extended import create_access_token, create_refresh_token, decode_token
 from flask_jwt_extended.exceptions import JWTExtendedException
 from jwt.exceptions import PyJWTError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from werkzeug.security import check_password_hash
 
-from ..errors import InvalidCredentialsError, InvalidInputError
+from ..errors import InvalidCredentialsError, InvalidInputError, TooManyAttemptsError
 from ..extensions import db
-from ..models import AuditAction, TokenBlocklist, User
+from ..models import AuditAction, AuditLog, TokenBlocklist, User
+from ..models.mixins import utcnow
 from ..models.user import hash_password
 from . import audit
 
@@ -35,8 +37,38 @@ def _record_login_failure(user: User | None, email: str, reason: str) -> None:
     db.session.commit()
 
 
+def _recent_failures(email: str, user: User | None) -> int:
+    """Failed sign-ins for ``email`` within the lockout window and since its last success.
+
+    Read from the audit log, so the count is shared by every worker and container.
+    Attempts refused *because of* the lockout are not counted (the lock doesn't extend itself).
+    """
+    since = utcnow() - timedelta(minutes=current_app.config["LOGIN_LOCKOUT_MINUTES"])
+    if user is not None:
+        last_success = db.session.scalar(
+            select(func.max(AuditLog.created_at)).where(
+                AuditLog.action == AuditAction.LOGIN_SUCCESS.value,
+                AuditLog.entity_type == "user",
+                AuditLog.entity_id == user.id,
+            )
+        )
+        if last_success is not None and last_success > since:
+            since = last_success
+    return db.session.scalar(
+        select(func.count(AuditLog.id)).where(
+            AuditLog.action == AuditAction.LOGIN_FAILED.value,
+            AuditLog.created_at >= since,
+            AuditLog.new_value["email"].astext == email,
+            AuditLog.new_value["reason"].astext != "locked_out",
+        )
+    )
+
+
 def authenticate(email: str, password: str) -> User:
     """Return the active user matching the credentials, or raise InvalidCredentialsError.
+
+    After LOGIN_LOCKOUT_ATTEMPTS failures within LOGIN_LOCKOUT_MINUTES the account is locked
+    for that window (TooManyAttemptsError, HTTP 429).
 
     Every attempt is audited (LOGIN_SUCCESS / LOGIN_FAILED). The client always gets the same
     error for unknown email, wrong password and inactive account, so accounts can't be probed;
@@ -44,6 +76,16 @@ def authenticate(email: str, password: str) -> User:
     """
     email = email.strip().lower()
     user = db.session.scalar(select(User).where(User.email == email))
+
+    # Checked before the password, so a locked account can't be brute-forced at all. Unknown
+    # emails lock the same way, so the lockout doesn't reveal which accounts exist.
+    if _recent_failures(email, user) >= current_app.config["LOGIN_LOCKOUT_ATTEMPTS"]:
+        _record_login_failure(user, email, "locked_out")
+        minutes = current_app.config["LOGIN_LOCKOUT_MINUTES"]
+        raise TooManyAttemptsError(
+            f"Too many failed sign-in attempts. Try again in {minutes} minutes.",
+            details={"retry_after_minutes": minutes},
+        )
 
     if user is None:
         check_password_hash(_dummy_hash(), password)  # keep response time similar

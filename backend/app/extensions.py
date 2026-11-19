@@ -3,6 +3,8 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from flask_mail import Mail
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
@@ -30,5 +32,7 @@ migrate = Migrate()
 jwt = JWTManager()
 mail = Mail()
 cors = CORS()
+# Per-client-IP rate limits (request.remote_addr is the real client behind nginx via ProxyFix).
+limiter = Limiter(key_func=get_remote_address)
 # Created here, started only when RUN_SCHEDULER=1 (never under the testing config).
 scheduler = BackgroundScheduler(timezone="UTC")

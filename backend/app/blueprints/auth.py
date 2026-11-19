@@ -1,8 +1,9 @@
 """/api/auth: login, refresh, logout, me."""
 
-from flask import Blueprint, request
+from flask import Blueprint, current_app, request
 from flask_jwt_extended import get_jwt, jwt_required
 
+from ..extensions import limiter
 from ..schemas.auth import LoginSchema, LogoutSchema
 from ..schemas.user import UserSchema
 from ..services import auth as auth_service
@@ -16,7 +17,12 @@ _logout_schema = LogoutSchema()
 _user_schema = UserSchema()
 
 
+def _login_limit() -> str:
+    return current_app.config["LOGIN_RATE_LIMIT"]
+
+
 @auth_bp.post("/login")
+@limiter.limit(_login_limit)
 def login():
     data = load_json(_login_schema)
     user = auth_service.authenticate(data["email"], data["password"])
@@ -25,6 +31,7 @@ def login():
 
 
 @auth_bp.post("/refresh")
+@limiter.limit(_login_limit)
 @jwt_required(refresh=True)
 def refresh():
     return {"access_token": auth_service.refresh_access_token(get_current_user()), "token_type": "Bearer"}

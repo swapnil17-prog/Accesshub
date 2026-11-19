@@ -1,164 +1,305 @@
 # AccessHub
 
-Self-service portal for requesting access to business applications, with configurable
-multi-level approval workflows and a full audit trail. See [CLAUDE.md](CLAUDE.md) for the spec.
+**Access Request & Approval Portal.** Employees request access to business applications.
+Managers, application owners and named approvers approve through configurable multi-level
+workflows, and auditors review the full, tamper-proof history. It replaces "please give me
+access" email threads with a tracked, time-limited and auditable process.
 
-**Stack:** React 18 + Vite + Redux Toolkit + Tailwind · Flask 3 + SQLAlchemy 2 · PostgreSQL 16 · Docker
+[CLAUDE.md](CLAUDE.md) is the project spec · [docs/SECURITY.md](docs/SECURITY.md) is the
+security review · [docs/INTERVIEW.md](docs/INTERVIEW.md) explains the design decisions.
 
-## Run it (Docker)
+## Contents
 
-```bash
-docker compose up --build
+- [Features](#features)
+- [Screenshots](#screenshots)
+- [Architecture](#architecture)
+- [Data model](#data-model)
+- [Tech stack](#tech-stack)
+- [Run it locally](#run-it-locally)
+- [Demo accounts](#demo-accounts)
+- [Tests](#tests)
+- [Production deployment](#production-deployment)
+- [API reference](#api-reference)
+- [Project layout](#project-layout)
+
+## Features
+
+**Requesting access**
+- Search the application catalogue, pick an access level, justify it (at least 20 characters)
+  and optionally make it time-limited. A preview shows who will approve, in order.
+- Follow each request on a step-by-step timeline (approver, decision, comment, time,
+  escalations). Cancel it while it is pending.
+
+**Approving**
+- Multi-step workflows per application. Each step is the requester's **manager**, the **app
+  owner** or a **named person**, with its own SLA.
+- Approval inbox, soonest-due first, with overdue highlighting, approve/reject (rejecting needs
+  a comment) and bulk approve. Rows disappear immediately and come back if the server refuses.
+- No self-approval: the engine falls back to the requester's manager, then an admin.
+- Two approvers clicking at the same moment can't both win: the request row is locked
+  (`SELECT … FOR UPDATE`) and the loser gets a clean "already decided".
+
+**Automation**
+- Emails (HTML and text) for approval needed, approved, rejected, escalated, expiring soon and
+  expired, each with a deep link into the app.
+- Overdue approvals escalate to the approver's manager (or an admin) every 15 minutes.
+  Time-limited access expires automatically, with a reminder 7 days before.
+
+**Administration and compliance**
+- Applications admin with a drag-and-drop **workflow builder**. App owners manage only their
+  own applications. Workflow edits never change requests already in flight.
+- User management: departments, reporting lines (cycles rejected), roles and deactivation, with
+  guards against locking out the last admin.
+- **Append-only audit log** of every state change (enforced by a database trigger), with
+  filters, a field-by-field diff view and streaming CSV export.
+- Role-aware dashboard with organisation charts for admins and auditors.
+
+**Security**: JWT access/refresh tokens with revocation, role checks plus object-level checks
+on every endpoint, a login rate limit and account lockout, a password policy, and strict
+security headers. See [docs/SECURITY.md](docs/SECURITY.md).
+
+## Screenshots
+
+> Placeholders: capture these from a seeded instance and save them in `docs/screenshots/`.
+
+| Screen | File |
+|---|---|
+| Sign-in page with the demo-account buttons | `docs/screenshots/login.png` |
+| Dashboard (admin): organisation tiles and charts | `docs/screenshots/dashboard.png` |
+| New request with the approval-chain preview | `docs/screenshots/new-request.png` |
+| Request detail timeline | `docs/screenshots/request-timeline.png` |
+| Approval inbox with an overdue item | `docs/screenshots/inbox.png` |
+| Workflow builder | `docs/screenshots/workflow-builder.png` |
+| Audit log with an expanded diff | `docs/screenshots/audit-log.png` |
+
+## Architecture
+
+```mermaid
+flowchart LR
+    user([Browser])
+
+    subgraph frontend["frontend container (nginx)"]
+        spa["React SPA<br/>Redux Toolkit · React Router"]
+        proxy["/api reverse proxy<br/>gzip · security headers"]
+    end
+
+    subgraph backend["backend container (Gunicorn × 4)"]
+        api["Flask blueprints<br/>parse → service → serialize"]
+        services["services/<br/>workflow · notifications · audit"]
+    end
+
+    scheduler["scheduler container<br/>flask run-scheduler<br/>(escalation, expiry)"]
+    db[("PostgreSQL 16")]
+    smtp[["SMTP<br/>(MailHog in dev)"]]
+
+    user -->|HTTPS| spa
+    user -->|/api/*| proxy --> api --> services
+    services -->|SQLAlchemy| db
+    services -->|after commit| smtp
+    scheduler --> services
 ```
 
-| Service  | URL                                  |
-|----------|--------------------------------------|
-| Frontend | http://localhost:5173                |
-| API      | http://localhost:5000/api/health     |
-| MailHog  | http://localhost:8025                |
+**Request lifecycle**
 
-The home page calls `/api/health` (through the Vite proxy) and should show **API ok / Database ok**.
+```mermaid
+sequenceDiagram
+    actor E as Employee
+    participant API as Flask API
+    participant WF as services/workflow.py
+    participant DB as PostgreSQL
+    actor A as Approver
 
-### Database and demo data
-
-```bash
-docker compose exec backend flask db upgrade   # apply migrations
-docker compose exec backend flask seed         # demo data (safe to run repeatedly)
+    E->>API: POST /api/requests
+    API->>WF: submit_request()
+    WF->>DB: request (status PENDING, workflow snapshot)<br/>+ step-1 approval + audit rows (one transaction)
+    WF-->>A: "approval needed" email (after commit)
+    A->>API: POST /api/approvals/{id}/approve
+    API->>WF: approve()
+    WF->>DB: SELECT … FOR UPDATE on the request row
+    alt more steps
+        WF->>DB: advance current_step, create next approval, audit
+    else last step
+        WF->>DB: status APPROVED, expires_at, audit
+        WF-->>E: "approved" email
+    end
 ```
 
-Demo accounts (password `Password@123`):
+## Data model
 
-| Email                    | Roles                 |
-|--------------------------|-----------------------|
-| admin@accesshub.dev      | admin, employee       |
-| auditor@accesshub.dev    | auditor, employee     |
-| manager@accesshub.dev    | manager, employee     |
-| owner@accesshub.dev      | app_owner, employee   |
-| employee@accesshub.dev   | employee              |
+```mermaid
+erDiagram
+    USERS ||--o{ USERS : "manages"
+    USERS }o--o{ ROLES : "user_roles"
+    USERS ||--o{ APPLICATIONS : "owns"
+    APPLICATIONS ||--|{ APP_ACCESS_LEVELS : "offers"
+    APPLICATIONS ||--o{ WORKFLOW_STEPS : "approval chain"
+    USERS |o--o{ WORKFLOW_STEPS : "named approver"
+    USERS ||--o{ ACCESS_REQUESTS : "requests"
+    APPLICATIONS ||--o{ ACCESS_REQUESTS : "for"
+    APP_ACCESS_LEVELS ||--o{ ACCESS_REQUESTS : "level"
+    ACCESS_REQUESTS ||--|{ APPROVALS : "one per reached step"
+    USERS ||--o{ APPROVALS : "decides"
+    USERS |o--o{ AUDIT_LOGS : "actor (NULL = system)"
+    USERS ||--o{ TOKEN_BLOCKLIST : "revoked tokens"
 
-…plus 10 more employees (e.g. `priya.sharma@accesshub.dev`), 5 applications with workflows,
-and 40 historical requests in mixed states.
-
-### Try the auth API
-
-```bash
-curl -s -X POST localhost:5000/api/auth/login -H "Content-Type: application/json" \
-  -d '{"email":"manager@accesshub.dev","password":"Password@123"}'
-curl -s localhost:5000/api/auth/me -H "Authorization: Bearer <access_token>"
+    USERS {
+        int id PK
+        string email UK
+        string password_hash
+        string department
+        int manager_id FK
+        bool is_active
+    }
+    ROLES {
+        int id PK
+        string name UK
+    }
+    APPLICATIONS {
+        int id PK
+        string name UK
+        int owner_id FK
+        bool is_active
+    }
+    APP_ACCESS_LEVELS {
+        int id PK
+        int application_id FK
+        string name "UNIQUE(application_id, name)"
+    }
+    WORKFLOW_STEPS {
+        int id PK
+        int application_id FK
+        int step_order "UNIQUE(application_id, step_order)"
+        enum approver_type "MANAGER | APP_OWNER | SPECIFIC_USER"
+        int approver_user_id FK
+        int sla_hours "1..168"
+    }
+    ACCESS_REQUESTS {
+        int id PK
+        int requester_id FK
+        int application_id FK
+        int access_level_id FK
+        enum status "PENDING | APPROVED | REJECTED | CANCELLED | EXPIRED"
+        int current_step
+        jsonb workflow_snapshot "chain frozen at submission"
+        datetime expires_at
+    }
+    APPROVALS {
+        int id PK
+        int request_id FK
+        int step_order
+        int approver_id FK
+        enum decision "PENDING | APPROVED | REJECTED | SKIPPED"
+        datetime due_at
+        bool escalated
+        int escalated_from_id FK
+    }
+    AUDIT_LOGS {
+        bigint id PK
+        int actor_id FK
+        string action
+        string entity_type
+        int entity_id
+        jsonb old_value
+        jsonb new_value
+        string ip_address
+        datetime created_at
+    }
+    TOKEN_BLOCKLIST {
+        int id PK
+        string jti UK
+        int user_id FK
+        datetime expires_at
+    }
 ```
 
-Endpoints: `POST /api/auth/login`, `POST /api/auth/refresh` (refresh token),
-`POST /api/auth/logout` (access token; optional `{"refresh_token": "..."}` to revoke it too),
-`GET /api/auth/me`.
+Key constraints: a partial unique index allows one PENDING request per user + app + level,
+and another allows one PENDING approval per request. `audit_logs` rejects UPDATE and DELETE
+through a trigger.
 
-### Requests and approvals
+## Tech stack
 
-| Endpoint | Who | Notes |
-|---|---|---|
-| `POST /api/requests` | employee | `{application_id, access_level_id, justification (≥20 chars), duration_days?}` → 201 |
-| `GET /api/requests` | any | own requests; auditors/admins see all. Filters: `status`, `application_id`, `requester_id`, `from`, `to`, `mine`, `page`, `per_page` |
-| `GET /api/requests/<id>` | requester, its approvers, auditor, admin | includes `steps` and the `approvals` timeline; 404 for anyone else |
-| `POST /api/requests/<id>/cancel` | requester | only while PENDING; open approval becomes SKIPPED |
-| `GET /api/approvals/inbox` | any | my PENDING approvals, soonest due first, with `is_overdue` |
-| `POST /api/approvals/<id>/approve` | assigned approver | optional `{comment}` |
-| `POST /api/approvals/<id>/reject` | assigned approver | `{comment}` required |
-| `POST /api/approvals/<id>/reassign` | admin | `{approver_id, reason}`; resets the step's SLA |
+| Layer | Technology |
+|---|---|
+| Frontend | React 18, Vite, React Router 6, Redux Toolkit (`createAsyncThunk`), Axios, Tailwind CSS, Recharts |
+| Backend | Python 3.12, Flask 3 (app factory, blueprints), Flask-SQLAlchemy 3 / SQLAlchemy 2, Flask-Migrate (Alembic), Flask-JWT-Extended, Flask-Mail, Flask-CORS, Flask-Limiter, marshmallow, APScheduler |
+| Database | PostgreSQL 16 |
+| Testing | pytest, pytest-cov, factory-boy, freezegun (real Postgres); Vitest + React Testing Library |
+| Delivery | Docker (multi-stage), docker compose, Gunicorn, nginx, GitHub Actions → GHCR |
 
-### Emails and background jobs
+## Run it locally
 
-Emails (HTML + plain text, templates in `backend/app/templates/email/`) are sent after each
-decision commits: approval needed, approved, rejected, escalated, access expiring (7 days
-before) and access expired. Each links into the frontend via `FRONTEND_URL`. In development
-they go to MailHog: open http://localhost:8025.
-
-| Job | Schedule | Run it now |
-|---|---|---|
-| Escalate overdue approvals to the approver's manager (fallback: admin) | every 15 min | `docker compose exec backend flask escalate` |
-| Expire ended access, then send expiry reminders | daily, 02:00 UTC | `docker compose exec backend flask expire` |
-
-The scheduler only starts when `RUN_SCHEDULER=1` (never under tests). It is off in the dev
-compose file; use the commands above. Jobs are idempotent, so running them twice is harmless.
-
-### Administration and compliance
-
-| Endpoint | Who | Notes |
-|---|---|---|
-| `GET /api/applications` | any | active apps (admins: `?include_inactive=true`), `q` search |
-| `POST /api/applications` | admin | `{name, owner_id, description?, access_levels?: [names]}` |
-| `GET/PUT/DELETE /api/applications/<id>` | read: any · edit: admin or that app's owner · delete: admin | DELETE is a soft delete (`is_active=false`) |
-| `GET/POST /api/applications/<id>/access-levels`, `PUT/DELETE .../<level_id>` | admin or owner | levels already used by requests can't be deleted |
-| `GET/PUT /api/applications/<id>/workflow` | read: any · write: admin or owner | PUT replaces the whole list atomically; in-flight requests keep their snapshot |
-| `GET/POST /api/users`, `GET/PUT /api/users/<id>`, `PUT /api/users/<id>/roles` | admin | search `q`, `role`, `is_active`; deactivate with `{"is_active": false}`; manager cycles rejected |
-| `GET /api/users/lookup?q=` | admin, app_owner | brief active users for pickers |
-| `GET /api/audit` | auditor, admin | filters `actor` (id or `system`), `action`, `entity_type`, `entity_id`, `from`, `to` |
-| `GET /api/audit/export.csv` | auditor, admin | streamed CSV, same filters; the export itself is audited |
-| `GET /api/reports/summary` | auditor, admin | counts by status/app, avg approval hours, escalations (30 days), overdue approvals |
-
-The workflow engine lives in `backend/app/services/workflow.py`; its module docstring explains
-the rules (step snapshot, row locking, audit-in-same-transaction, notify-after-commit).
-
-## Tests
-
-Backend tests use a real Postgres database (`accesshub_test`, created automatically the first
-time the Postgres volume initialises). The schema is built by running the Alembic migrations,
-and a test fails if the migrations and models ever drift apart:
+Requires Docker Desktop.
 
 ```bash
-docker compose exec backend pytest --cov=app
+docker compose up --build                     # Postgres, API, Vite dev server, MailHog
+docker compose exec backend flask db upgrade  # create the schema
+docker compose exec backend flask seed        # demo data (safe to run repeatedly)
 ```
 
-> If you created the Postgres volume before `docker/postgres/init` existed, recreate it with
-> `docker compose down -v` (this deletes local data).
+| Service | URL |
+|---|---|
+| App (Vite dev server) | http://localhost:5173 |
+| API | http://localhost:5000/api/health |
+| MailHog (outgoing email) | http://localhost:8025 |
 
-## Frontend
+Background jobs don't run on a schedule in development. Trigger them with
+`docker compose exec backend flask escalate` and `docker compose exec backend flask expire`.
 
-```bash
-cd frontend
-npm install
-npm test          # Vitest + React Testing Library
-npm run lint      # ESLint (zero warnings allowed)
-npm run dev       # http://localhost:5173 (proxies /api to the backend)
-```
-
-- `src/api/client.js` — axios instance; attaches the access token and, on a 401, refreshes
-  once (concurrent requests share one refresh) and retries; signs out if that fails.
-- `src/features/auth/authSlice.js` + `src/hooks/useAuth.js` — session state; tokens live in
-  localStorage; `hasRole(...roles)` is any-of.
-- `src/components/ProtectedRoute.jsx` — `<ProtectedRoute roles={[...]}>` guard (UX only; the
-  API enforces every permission). Unknown paths show a 404 page, missing roles a 403 page.
-- Shared UI in `src/components/`: `DataTable` (sorting, pagination), `StatusBadge`,
-  `ConfirmModal`, `ToastProvider`/`useToast`, `EmptyState`, `Spinner`, `Button`.
-- The login page has one-click demo logins for the five seeded roles.
-- Requests: **New request** (searchable app picker, access level, justification, duration and a
-  preview of the approval chain), **My requests** (filters kept in the URL, paginated) and a
-  **request detail** page with the step-by-step approval timeline and a cancel button.
-- **Approval inbox**: soonest-due first with overdue highlighting, approve/reject dialogs
-  (rejecting needs a comment), bulk approve, and optimistic updates that roll back on error.
-- **Admin** (`/admin/applications`, `/admin/users`): application details, access levels and a
-  workflow builder (add/remove, drag or arrow reorder, approver type, named approver picker,
-  SLA hours; saved with one `PUT /workflow`). App owners see and edit only their own apps.
-  User table with search/filters and an edit modal (department, manager, active, roles).
-- **Audit log** (`/audit`): filter by actor (person or system), action, entity type and dates;
-  expand a row to see an old/new field diff; **Export CSV** downloads the same filtered set.
-- **Dashboard**: personal tiles for everyone; for admins/auditors, organisation tiles plus
-  Recharts charts (requests by status, by application stacked by status), each with a table
-  view. Charts and admin screens are code-split, so employees never download them.
-
-## Run the backend without Docker (optional)
-
-Requires Python 3.12 and a reachable Postgres:
+<details>
+<summary>Run the backend or frontend outside Docker</summary>
 
 ```bash
+# backend (needs Python 3.12 and a reachable Postgres)
 cd backend
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
 cp .env.example .env
-flask run --debug
+flask db upgrade && flask seed && flask run --debug
+
+# frontend
+cd frontend && npm install && npm run dev            # proxies /api to localhost:5000
+```
+</details>
+
+## Demo accounts
+
+All use the password **`Password@123`**. The sign-in page also has one-click buttons for them.
+
+| Email | Roles | Try |
+|---|---|---|
+| `employee@accesshub.dev` | employee | request access, follow the timeline, cancel |
+| `manager@accesshub.dev` | manager, employee | approve your reports' requests in the inbox |
+| `owner@accesshub.dev` | app_owner, employee | approve owner steps; edit your apps' workflows |
+| `admin@accesshub.dev` | admin, employee | applications, users, reassignment, dashboard charts |
+| `auditor@accesshub.dev` | auditor, employee | audit log, diff view, CSV export, dashboard charts |
+
+The seed also creates 10 more employees (e.g. `priya.sharma@accesshub.dev`), 5 applications
+(Jira, Salesforce, GitHub, AWS Console, Workday) with 1–3 approval steps each, and 40
+historical requests in every state.
+
+## Tests
+
+```bash
+docker compose exec backend pytest --cov=app        # ~330 tests, real Postgres, fails under 85% coverage
+docker compose exec backend ruff check . && docker compose exec backend ruff format --check .
+cd frontend && npm test && npm run lint             # Vitest + RTL, ESLint with zero warnings
 ```
 
-## Production deployment
+Notable backend suites:
 
-### What runs
+| Suite | What it proves |
+|---|---|
+| `tests/unit/test_workflow.py` | engine rules end to end, rollback on failure, and a real two-transaction race on the row lock |
+| `tests/integration/test_permissions.py` | every role × every protected endpoint is allowed or gets 403 |
+| `tests/integration/test_audit_invariant.py` | every POST/PUT/DELETE route (read from Flask's URL map) and every background job writes an audit row |
+| `tests/integration/test_query_counts.py` | list endpoints run the same number of SQL queries for 2 rows as for 8 (no N+1) |
+| `tests/integration/test_security.py` | rate limit, account lockout, password policy, production secret checks |
+| `tests/unit/test_migrations.py` | the Alembic migrations exactly match the models |
+
+The test database (`accesshub_test`) is created by `docker/postgres/init` the first time the
+Postgres volume starts, and its schema is built by running the real migrations.
+
+## Production deployment
 
 ```
             :80
@@ -168,47 +309,79 @@ flask run --debug
                                       scheduler (same image, RUN_SCHEDULER=1) ──┘
 ```
 
-- **backend**: `backend/Dockerfile` target `prod`. Its entrypoint runs `flask db upgrade`, then
-  Gunicorn. `RUN_SCHEDULER=0`, so you can scale it (`--scale backend=3`); nginx re-resolves it.
-- **scheduler**: the same image running `flask run-scheduler`. It is the **only** process that
-  runs the escalation (every 15 min) and expiry/reminder (daily) jobs.
-- **frontend**: `frontend/Dockerfile` (Node build stage, then `nginx:1.27-alpine`) with
-  `frontend/nginx.conf`. Hashed assets are cached for a year; `index.html` is always revalidated.
-- `PROXY_FIX_HOPS=1` makes the API trust nginx's `X-Forwarded-For`, so audit logs record the
-  real client IP. Leave it at 0 when nothing trusted sits in front of the app.
-
-### Run it on a server
-
 ```bash
-cp .env.production.example .env        # fill in real secrets, SMTP and FRONTEND_URL
-docker compose -f docker-compose.prod.yml up -d          # pulls images from GHCR
-# or build locally instead of pulling:
-docker compose -f docker-compose.prod.yml up -d --build
-docker compose -f docker-compose.prod.yml exec backend flask seed   # optional demo data
+cp .env.production.example .env                          # real secrets, SMTP, FRONTEND_URL
+docker compose -f docker-compose.prod.yml up -d          # pull images from GHCR
+docker compose -f docker-compose.prod.yml up -d --build  # or build locally
 ```
 
-Serve it over HTTPS by putting a TLS-terminating proxy or load balancer in front of port 80,
-then uncomment the HSTS header in `frontend/nginx-security-headers.conf`.
+- **backend**: `backend/Dockerfile` target `prod`. Its entrypoint runs `flask db upgrade`, then
+  Gunicorn. `RUN_SCHEDULER=0`, so it can be scaled (`--scale backend=3`).
+- **scheduler**: the same image running `flask run-scheduler`. It is the only process that runs
+  the jobs.
+- **frontend**: `frontend/Dockerfile` (Node build, then `nginx:1.27-alpine`) with
+  `frontend/nginx.conf`. Hashed assets are cached for a year; `index.html` is always revalidated.
+- `PROXY_FIX_HOPS=1` makes audit logs record the real client IP behind nginx. Production refuses
+  to start with missing, short or placeholder secrets.
+- Put a TLS-terminating proxy or load balancer in front of port 80, then enable the HSTS line in
+  `frontend/nginx-security-headers.conf`.
 
 ### CI/CD (`.github/workflows/ci.yml`)
 
 | Job | When | What |
 |---|---|---|
-| backend | every push / PR | Postgres 16 service, `ruff check`, `ruff format --check`, pytest with coverage (fails under 85%) |
+| backend | every push / PR | Postgres 16 service, ruff lint + format check, pytest with coverage (fails under 85%) |
 | frontend | every push / PR | `npm ci`, ESLint, Vitest, production build |
-| images | push to `main` | builds both `prod` images, pushes `ghcr.io/<owner>/accesshub-{backend,frontend}` tagged with the commit SHA and `latest` |
-| deploy | push to `main`, **only if deploy secrets exist** | SSH to the server, `docker compose pull && up -d` with the new SHA tag |
+| images | push to `main` | both `prod` images pushed to `ghcr.io/<owner>/accesshub-{backend,frontend}`, tagged with the commit SHA and `latest` |
+| deploy | push to `main`, **only if the deploy secrets exist** | SSH to the server, `docker compose pull && up -d` with the new SHA |
 
-To enable deployment, add repository secrets `DEPLOY_HOST`, `DEPLOY_USER` and `DEPLOY_SSH_KEY`
-(optional: `DEPLOY_PORT`, `DEPLOY_PATH`, default `/opt/accesshub`). The server needs Docker,
-`docker-compose.prod.yml` and `.env` in `DEPLOY_PATH`, and must be able to pull from GHCR.
-That means public packages, or a `docker login ghcr.io` with a read-only token. Without the
-secrets the deploy job shows as skipped.
+Deploy secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY` (optional `DEPLOY_PORT`,
+`DEPLOY_PATH`, default `/opt/accesshub`). The server needs Docker, `docker-compose.prod.yml`
+and `.env` in `DEPLOY_PATH`, and must be able to pull from GHCR.
+
+## API reference
+
+All endpoints are under `/api` and use JSON. Errors look like
+`{"error": {"code", "message", "details"}}`. Lists take `?page=&per_page=` and return
+`{"items", "page", "per_page", "total"}`.
+
+| Endpoint | Who | Notes |
+|---|---|---|
+| `POST /auth/login`, `/auth/refresh`, `/auth/logout`, `GET /auth/me` | public / token | 15-min access and 7-day refresh tokens; logout revokes both; login is rate-limited with an account lockout |
+| `POST /requests` | employee | `{application_id, access_level_id, justification, duration_days?}` |
+| `GET /requests` | any | own requests (auditors/admins: everyone's). Filters `status`, `application_id`, `requester_id`, `from`, `to`, `mine` |
+| `GET /requests/<id>` | requester, its approvers, auditor, admin | approval timeline + step list; 404 for anyone else |
+| `POST /requests/<id>/cancel` | requester | only while PENDING |
+| `GET /approvals/inbox` | any | my PENDING approvals, soonest due first, `is_overdue` |
+| `POST /approvals/<id>/approve`, `/reject` | assigned approver | reject needs `{comment}` |
+| `POST /approvals/<id>/reassign` | admin | `{approver_id, reason}` |
+| `GET/POST /applications`, `GET/PUT/DELETE /applications/<id>` | read: any · write: admin or the app's owner | DELETE is a soft delete |
+| `…/<id>/access-levels[/<level_id>]` | admin or owner | levels already used by requests can't be deleted |
+| `GET/PUT /applications/<id>/workflow` | read: any · write: admin or owner | PUT replaces the whole ordered list atomically |
+| `GET/POST /users`, `GET/PUT /users/<id>`, `PUT /users/<id>/roles` | admin | search and filters; password policy; cycle and lockout guards |
+| `GET /users/lookup?q=` | admin, app_owner | brief active users for pickers |
+| `GET /audit`, `GET /audit/export.csv` | auditor, admin | filters `actor` (id or `system`), `action`, `entity_type`, `entity_id`, `from`, `to` |
+| `GET /reports/summary` | auditor, admin | counts by status and app, average approval hours, escalations, overdue |
+| `GET /health` | public | `{"status", "db"}` |
 
 ## Project layout
 
 ```
-backend/    Flask API (app factory, blueprints, services, tests)
-frontend/   React SPA (Vite, feature folders)
-docker/     Container support files (Postgres init scripts)
+backend/
+  app/
+    blueprints/      HTTP routes (parse → call service → serialize)
+    services/        business logic: workflow.py, escalation.py, notifications.py, audit.py, …
+    models/          SQLAlchemy 2.x models, one per module
+    schemas/         marshmallow input/output schemas
+    templates/email/ HTML + text email templates
+  migrations/        Alembic migrations (incl. the audit-log append-only trigger)
+  tests/             unit/ and integration/ suites (real Postgres)
+frontend/
+  src/api/           axios client (token refresh queue) and per-resource modules
+  src/features/      auth, requests, approvals, applications, users, audit, dashboard
+  src/components/    shared UI (DataTable, ProtectedRoute, Layout, modals, toasts, …)
+  nginx.conf         production web server config
+docker/              Postgres init script (creates the test database)
+docs/                SECURITY.md, INTERVIEW.md
+.github/workflows/   CI/CD
 ```
