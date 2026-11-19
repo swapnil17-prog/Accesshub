@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Outlet, useLocation } from 'react-router-dom';
 
 import { fetchInboxCount, selectInboxCount } from '../features/approvals/approvalsSlice';
 import { XIcon } from './icons';
 import Sidebar from './Sidebar';
+import { FullPageSpinner } from './Spinner';
 import TopBar from './TopBar';
 
 const INBOX_POLL_MS = 60_000;
@@ -52,7 +53,9 @@ export default function Layout() {
         <TopBar inboxCount={inboxCount} onOpenMenu={() => setMenuOpen(true)} />
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-7xl">
-            <Outlet />
+            <Suspense fallback={<FullPageSpinner />}>
+              <Outlet />
+            </Suspense>
           </div>
         </main>
       </div>

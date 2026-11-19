@@ -28,6 +28,8 @@ export const NAV_SECTIONS = [
   },
 ];
 
+export const ALL_ROLES = ['employee', 'manager', 'app_owner', 'admin', 'auditor'];
+
 export const ROLE_LABELS = {
   employee: 'Employee',
   manager: 'Manager',

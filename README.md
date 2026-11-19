@@ -134,6 +134,15 @@ npm run dev       # http://localhost:5173 (proxies /api to the backend)
   **request detail** page with the step-by-step approval timeline and a cancel button.
 - **Approval inbox**: soonest-due first with overdue highlighting, approve/reject dialogs
   (rejecting needs a comment), bulk approve, and optimistic updates that roll back on error.
+- **Admin** (`/admin/applications`, `/admin/users`): application details, access levels and a
+  workflow builder (add/remove, drag or arrow reorder, approver type, named approver picker,
+  SLA hours; saved with one `PUT /workflow`). App owners see and edit only their own apps.
+  User table with search/filters and an edit modal (department, manager, active, roles).
+- **Audit log** (`/audit`): filter by actor (person or system), action, entity type and dates;
+  expand a row to see an old/new field diff; **Export CSV** downloads the same filtered set.
+- **Dashboard**: personal tiles for everyone; for admins/auditors, organisation tiles plus
+  Recharts charts (requests by status, by application stacked by status), each with a table
+  view. Charts and admin screens are code-split, so employees never download them.
 
 ## Run the backend without Docker (optional)
 

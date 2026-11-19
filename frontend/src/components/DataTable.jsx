@@ -12,6 +12,8 @@ import Spinner from './Spinner';
  * Sorting is client-side by default (on the rows given). Pass ``sort`` + ``onSortChange``
  * to control it instead (e.g. to sort on the server).
  * Pagination is shown when ``pagination = { page, perPage, total, onPageChange }`` is given.
+ * Expandable rows: pass ``isExpanded(row)`` and ``renderExpanded(row)``; the expanded
+ * content renders in a full-width row under its parent.
  */
 export default function DataTable({
   columns,
@@ -25,6 +27,8 @@ export default function DataTable({
   rowClassName,
   empty,
   caption,
+  isExpanded,
+  renderExpanded,
 }) {
   const [internalSort, setInternalSort] = useState(null);
   const sort = onSortChange ? controlledSort : internalSort;
@@ -97,7 +101,7 @@ export default function DataTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {sortedRows.map((row) => (
+            {sortedRows.map((row) => [
               <tr
                 key={keyOf(row)}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
@@ -119,8 +123,15 @@ export default function DataTable({
                     {column.render ? column.render(row) : row[column.key]}
                   </td>
                 ))}
-              </tr>
-            ))}
+              </tr>,
+              isExpanded?.(row) ? (
+                <tr key={`${keyOf(row)}-expanded`} className="bg-slate-50/70">
+                  <td colSpan={columns.length} className="px-4 py-4">
+                    {renderExpanded(row)}
+                  </td>
+                </tr>
+              ) : null,
+            ])}
           </tbody>
         </table>
         {loading ? (

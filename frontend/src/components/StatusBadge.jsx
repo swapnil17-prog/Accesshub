@@ -11,6 +11,8 @@ const STYLES = {
   EXPIRED: 'bg-violet-50 text-violet-700 ring-violet-600/20',
   ESCALATED: 'bg-orange-50 text-orange-700 ring-orange-600/20',
   OVERDUE: 'bg-rose-50 text-rose-700 ring-rose-600/30',
+  ACTIVE: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
+  INACTIVE: 'bg-slate-100 text-slate-600 ring-slate-500/20',
 };
 
 const DOTS = {
@@ -22,6 +24,8 @@ const DOTS = {
   EXPIRED: 'bg-violet-500',
   ESCALATED: 'bg-orange-500',
   OVERDUE: 'bg-rose-500',
+  ACTIVE: 'bg-emerald-500',
+  INACTIVE: 'bg-slate-400',
 };
 
 export default function StatusBadge({ status, className = '' }) {

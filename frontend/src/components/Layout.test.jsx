@@ -2,17 +2,26 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import * as approvalsApi from '../api/approvals';
+import * as auditApi from '../api/audit';
 import * as authApi from '../api/auth';
+import * as requestsApi from '../api/requests';
+import * as usersApi from '../api/users';
 import { tokenStore } from '../api/tokens';
 import AppRoutes from '../routes';
 import { authState, renderWithProviders, users } from '../test/utils';
 
 vi.mock('../api/auth');
 vi.mock('../api/approvals');
+vi.mock('../api/users');
+vi.mock('../api/requests');
+vi.mock('../api/audit');
 
 beforeEach(() => {
+  requestsApi.listRequests.mockResolvedValue({ items: [], page: 1, per_page: 1, total: 0 });
+  usersApi.listUsers.mockResolvedValue({ items: [], page: 1, per_page: 15, total: 0 });
   approvalsApi.fetchInbox.mockResolvedValue({ items: [], page: 1, per_page: 1, total: 3 });
   authApi.logout.mockResolvedValue();
+  auditApi.fetchSummary.mockReturnValue(new Promise(() => {})); // admin dashboard report: never needed here
 });
 
 describe('Layout', () => {
@@ -44,7 +53,7 @@ describe('Layout', () => {
     tokenStore.set({ access: 'admin-access', refresh: 'admin-refresh' });
     renderWithProviders(<AppRoutes />, { preloadedState: authState(users.admin), route: '/admin/users' });
 
-    await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
     expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
     expect(authApi.logout).toHaveBeenCalledWith('admin-refresh');
     expect(tokenStore.getAccess()).toBeNull();

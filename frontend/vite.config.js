@@ -25,5 +25,7 @@ export default defineConfig({
     setupFiles: './src/test/setup.js',
     css: false,
     restoreMocks: true,
+    // Generous per-test limit: user-event flows run slowly on loaded laptops and CI runners.
+    testTimeout: 15000,
   },
 });

@@ -1,3 +1,4 @@
+import { lazy } from 'react';
 import { Route, Routes } from 'react-router-dom';
 
 import Layout from './components/Layout';
@@ -8,9 +9,15 @@ import DashboardPage from './features/dashboard/DashboardPage';
 import MyRequestsPage from './features/requests/MyRequestsPage';
 import NewRequestPage from './features/requests/NewRequestPage';
 import RequestDetailPage from './features/requests/RequestDetailPage';
-import ComingSoonPage from './pages/ComingSoonPage';
 import ForbiddenPage from './pages/ForbiddenPage';
 import NotFoundPage from './pages/NotFoundPage';
+
+// Admin and audit screens (and their heavier code) load on first visit; <Layout> shows
+// a spinner in the page area meanwhile.
+const ApplicationsAdminPage = lazy(() => import('./features/applications/ApplicationsAdminPage'));
+const ApplicationEditPage = lazy(() => import('./features/applications/ApplicationEditPage'));
+const UsersAdminPage = lazy(() => import('./features/users/UsersAdminPage'));
+const AuditPage = lazy(() => import('./features/audit/AuditPage'));
 
 const EMPLOYEE = ['employee'];
 const APP_ADMINS = ['admin', 'app_owner'];
@@ -40,13 +47,14 @@ export default function AppRoutes() {
         <Route path="approvals" element={<InboxPage />} />
 
         <Route element={<ProtectedRoute roles={APP_ADMINS} />}>
-          <Route path="admin/applications" element={<ComingSoonPage title="Applications" />} />
+          <Route path="admin/applications" element={<ApplicationsAdminPage />} />
+          <Route path="admin/applications/:appId" element={<ApplicationEditPage />} />
         </Route>
         <Route element={<ProtectedRoute roles={ADMIN} />}>
-          <Route path="admin/users" element={<ComingSoonPage title="Users" />} />
+          <Route path="admin/users" element={<UsersAdminPage />} />
         </Route>
         <Route element={<ProtectedRoute roles={AUDIT} />}>
-          <Route path="audit" element={<ComingSoonPage title="Audit log" />} />
+          <Route path="audit" element={<AuditPage />} />
         </Route>
 
         <Route path="403" element={<ForbiddenPage />} />
