@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from flask import Flask
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import CONFIGS, ProductionConfig
 from .extensions import cors, db, jwt, mail, migrate
@@ -30,6 +31,12 @@ def create_app(config_name: str | None = None) -> Flask:
     app = Flask(__name__)
     app.config.from_object(config_cls)
     app.json.sort_keys = False  # keep response keys in the order we build them
+
+    hops = app.config.get("PROXY_FIX_HOPS", 0)
+    if hops:
+        # Behind nginx: trust X-Forwarded-For/Proto from that many proxies, so request.remote_addr
+        # (recorded in audit logs) is the real client, not the proxy.
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=hops, x_proto=hops)
 
     from . import models  # noqa: F401  (register all models on the metadata)
 

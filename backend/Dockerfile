@@ -1,17 +1,49 @@
-# Phase 0: development image (used by docker-compose.yml via `target: dev`).
-# Phase 8 adds a hardened multi-stage production target to this file.
+# syntax=docker/dockerfile:1
+#
+# Targets:
+#   dev  - Flask dev server with reload; source is bind-mounted (docker-compose.yml)
+#   prod - Gunicorn as a non-root user; runs migrations on start (docker-compose.prod.yml, CI)
+
 FROM python:3.12-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /app
+
+# ---- runtime dependencies in a self-contained virtualenv --------------------------------
+FROM base AS builder
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
+# ---- development -----------------------------------------------------------------------
 FROM base AS dev
+COPY requirements.txt requirements-dev.txt ./
+RUN pip install -r requirements-dev.txt
 ENV FLASK_APP=wsgi.py \
     FLASK_CONFIG=development
 COPY . .
 EXPOSE 5000
 CMD ["flask", "run", "--host", "0.0.0.0", "--port", "5000", "--debug"]
+
+# ---- production ------------------------------------------------------------------------
+FROM base AS prod
+ENV PATH="/opt/venv/bin:$PATH" \
+    FLASK_APP=wsgi.py \
+    FLASK_CONFIG=production
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid app --home-dir /app --shell /usr/sbin/nologin app
+COPY --from=builder /opt/venv /opt/venv
+# Only what the app needs at runtime (no tests, no dev tooling).
+COPY --chown=app:app app ./app
+COPY --chown=app:app migrations ./migrations
+COPY --chown=app:app wsgi.py docker-entrypoint.sh ./
+RUN chmod 0555 docker-entrypoint.sh
+USER app
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).status == 200 else 1)"
+ENTRYPOINT ["./docker-entrypoint.sh"]
+CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:8000", "--access-logfile", "-", "--timeout", "60", "wsgi:app"]

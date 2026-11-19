@@ -1,4 +1,5 @@
-# Runtime
+# Runtime dependencies (what the production image installs).
+# Test and lint tools live in requirements-dev.txt.
 Flask==3.1.0
 Flask-SQLAlchemy==3.1.1
 SQLAlchemy==2.0.36
@@ -11,10 +12,3 @@ APScheduler==3.10.4
 psycopg[binary]==3.2.3
 python-dotenv==1.0.1
 gunicorn==23.0.0
-
-# Testing / tooling
-pytest==8.3.4
-pytest-cov==6.0.0
-factory-boy==3.3.1
-freezegun==1.5.1
-ruff==0.8.4

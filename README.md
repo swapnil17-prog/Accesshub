@@ -151,10 +151,59 @@ Requires Python 3.12 and a reachable Postgres:
 ```bash
 cd backend
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 cp .env.example .env
 flask run --debug
 ```
+
+## Production deployment
+
+### What runs
+
+```
+            :80
+  browser ───────► frontend (nginx)
+                     ├─ /            SPA (static files, index.html fallback, gzip, security headers)
+                     └─ /api/*  ───► backend (Gunicorn, 4 workers, non-root) ──► postgres
+                                      scheduler (same image, RUN_SCHEDULER=1) ──┘
+```
+
+- **backend**: `backend/Dockerfile` target `prod`. Its entrypoint runs `flask db upgrade`, then
+  Gunicorn. `RUN_SCHEDULER=0`, so you can scale it (`--scale backend=3`); nginx re-resolves it.
+- **scheduler**: the same image running `flask run-scheduler`. It is the **only** process that
+  runs the escalation (every 15 min) and expiry/reminder (daily) jobs.
+- **frontend**: `frontend/Dockerfile` (Node build stage, then `nginx:1.27-alpine`) with
+  `frontend/nginx.conf`. Hashed assets are cached for a year; `index.html` is always revalidated.
+- `PROXY_FIX_HOPS=1` makes the API trust nginx's `X-Forwarded-For`, so audit logs record the
+  real client IP. Leave it at 0 when nothing trusted sits in front of the app.
+
+### Run it on a server
+
+```bash
+cp .env.production.example .env        # fill in real secrets, SMTP and FRONTEND_URL
+docker compose -f docker-compose.prod.yml up -d          # pulls images from GHCR
+# or build locally instead of pulling:
+docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml exec backend flask seed   # optional demo data
+```
+
+Serve it over HTTPS by putting a TLS-terminating proxy or load balancer in front of port 80,
+then uncomment the HSTS header in `frontend/nginx-security-headers.conf`.
+
+### CI/CD (`.github/workflows/ci.yml`)
+
+| Job | When | What |
+|---|---|---|
+| backend | every push / PR | Postgres 16 service, `ruff check`, `ruff format --check`, pytest with coverage (fails under 85%) |
+| frontend | every push / PR | `npm ci`, ESLint, Vitest, production build |
+| images | push to `main` | builds both `prod` images, pushes `ghcr.io/<owner>/accesshub-{backend,frontend}` tagged with the commit SHA and `latest` |
+| deploy | push to `main`, **only if deploy secrets exist** | SSH to the server, `docker compose pull && up -d` with the new SHA tag |
+
+To enable deployment, add repository secrets `DEPLOY_HOST`, `DEPLOY_USER` and `DEPLOY_SSH_KEY`
+(optional: `DEPLOY_PORT`, `DEPLOY_PATH`, default `/opt/accesshub`). The server needs Docker,
+`docker-compose.prod.yml` and `.env` in `DEPLOY_PATH`, and must be able to pull from GHCR.
+That means public packages, or a `docker login ghcr.io` with a read-only token. Without the
+secrets the deploy job shows as skipped.
 
 ## Project layout
 

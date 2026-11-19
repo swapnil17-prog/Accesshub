@@ -43,6 +43,9 @@ class BaseConfig:
     # App
     FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
     RUN_SCHEDULER = _bool("RUN_SCHEDULER")
+    # Number of trusted reverse proxies in front of the app (nginx in production = 1). With 0,
+    # X-Forwarded-* headers are ignored so clients can't spoof the IP written to audit logs.
+    PROXY_FIX_HOPS = int(os.environ.get("PROXY_FIX_HOPS", "0"))
     ESCALATION_INTERVAL_MINUTES = int(os.environ.get("ESCALATION_INTERVAL_MINUTES", "15"))
     DAILY_JOB_HOUR_UTC = int(os.environ.get("DAILY_JOB_HOUR_UTC", "2"))
     EXPIRY_REMINDER_DAYS = int(os.environ.get("EXPIRY_REMINDER_DAYS", "7"))

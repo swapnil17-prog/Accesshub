@@ -29,3 +29,30 @@ def register_cli(app: Flask) -> None:
 
         result = run_daily()
         click.echo(f"Expired {result['expired']} request(s); sent {result['reminded']} reminder(s).")
+
+    @app.cli.command("run-scheduler")
+    def run_scheduler_command() -> None:
+        """Run the background jobs until stopped (command of the dedicated scheduler container).
+
+        Requires RUN_SCHEDULER=1. Exactly one such process should run; the web containers keep
+        RUN_SCHEDULER=0. Stops cleanly on SIGTERM (docker stop) or Ctrl+C.
+        """
+        import signal
+        import threading
+
+        from . import scheduler as scheduler_module
+
+        if not app.config.get("RUN_SCHEDULER"):
+            raise click.ClickException("Set RUN_SCHEDULER=1 to run the scheduler process.")
+        scheduler_module.init_scheduler(app)  # no-op if create_app already started it
+        running = scheduler_module.scheduler
+        if not running.running:
+            raise click.ClickException("The scheduler did not start (is this the testing config?).")
+
+        stop = threading.Event()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            signal.signal(sig, lambda *_: stop.set())
+        click.echo("Scheduler running jobs: " + ", ".join(job.id for job in running.get_jobs()))
+        stop.wait()
+        running.shutdown(wait=True)
+        click.echo("Scheduler stopped.")

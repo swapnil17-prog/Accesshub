@@ -1,0 +1,93 @@
+# Production stack.
+#
+#   cp .env.production.example .env      # then fill in real secrets
+#   docker compose -f docker-compose.prod.yml up -d            # pull images from the registry
+#   docker compose -f docker-compose.prod.yml up -d --build    # or build them locally
+#
+# Services
+#   postgres   - database (not published on the host)
+#   backend    - Gunicorn API; runs migrations on start; RUN_SCHEDULER=0 so it can be scaled
+#                (docker compose ... up -d --scale backend=3); nginx re-resolves it
+#   scheduler  - same image, RUN_SCHEDULER=1: the ONLY process that runs the background jobs
+#   frontend   - nginx serving the SPA and proxying /api to backend:8000, on port 80
+# Distinct from the dev stack (which Docker names "accesshub" after this folder), so the two
+# never share containers or the database volume.
+name: accesshub-prod
+
+x-backend-image: &backend-image
+  image: ${REGISTRY:-ghcr.io/your-github-user}/accesshub-backend:${IMAGE_TAG:-latest}
+  build:
+    context: ./backend
+    target: prod
+
+x-backend-env: &backend-env
+  FLASK_CONFIG: production
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in .env}
+  FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+  MAIL_SERVER: ${MAIL_SERVER:-localhost}
+  MAIL_PORT: ${MAIL_PORT:-587}
+  MAIL_USE_TLS: ${MAIL_USE_TLS:-1}
+  MAIL_USERNAME: ${MAIL_USERNAME:-}
+  MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+  MAIL_DEFAULT_SENDER: ${MAIL_DEFAULT_SENDER:-AccessHub <no-reply@example.com>}
+  PROXY_FIX_HOPS: "1"  # exactly one trusted proxy: the nginx container
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    <<: *backend-image
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      RUN_SCHEDULER: "0"
+      RUN_MIGRATIONS: "1"
+    expose:
+      - "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  scheduler:
+    <<: *backend-image
+    restart: unless-stopped
+    command: ["flask", "run-scheduler"]
+    environment:
+      <<: *backend-env
+      RUN_SCHEDULER: "1"
+      RUN_MIGRATIONS: "0"  # the backend service migrates
+    healthcheck:
+      disable: true  # no HTTP server in this container
+    depends_on:
+      backend:
+        condition: service_healthy  # i.e. migrations have run
+
+  frontend:
+    image: ${REGISTRY:-ghcr.io/your-github-user}/accesshub-frontend:${IMAGE_TAG:-latest}
+    build:
+      context: ./frontend
+      target: prod
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  pgdata:
