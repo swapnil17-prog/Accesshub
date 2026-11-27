@@ -4,6 +4,7 @@ import { Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import InboxPage from './features/approvals/InboxPage';
+import AccountPage from './features/account/AccountPage';
 import LoginPage from './features/auth/LoginPage';
 import DashboardPage from './features/dashboard/DashboardPage';
 import MyRequestsPage from './features/requests/MyRequestsPage';
@@ -37,6 +38,7 @@ export default function AppRoutes() {
         }
       >
         <Route index element={<DashboardPage />} />
+        <Route path="account" element={<AccountPage />} />
 
         <Route element={<ProtectedRoute roles={EMPLOYEE} />}>
           <Route path="requests" element={<MyRequestsPage />} />

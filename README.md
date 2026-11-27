@@ -48,8 +48,10 @@ security review · [docs/INTERVIEW.md](docs/INTERVIEW.md) explains the design de
 **Administration and compliance**
 - Applications admin with a drag-and-drop **workflow builder**. App owners manage only their
   own applications. Workflow edits never change requests already in flight.
-- User management: departments, reporting lines (cycles rejected), roles and deactivation, with
-  guards against locking out the last admin.
+- User management: create users (with a generated temporary password), departments, reporting
+  lines (cycles rejected), roles and deactivation, with guards against locking out the last admin.
+- **Your account** page: everyone can change their own password; doing so signs out every other
+  session.
 - **Append-only audit log** of every state change (enforced by a database trigger), with
   filters, a field-by-field diff view and streaming CSV export.
 - Role-aware dashboard with organisation charts for admins and auditors.
@@ -60,17 +62,16 @@ security headers. See [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Screenshots
 
-> Placeholders: capture these from a seeded instance and save them in `docs/screenshots/`.
-
-| Screen | File |
+| | |
 |---|---|
-| Sign-in page with the demo-account buttons | `docs/screenshots/login.png` |
-| Dashboard (admin): organisation tiles and charts | `docs/screenshots/dashboard.png` |
-| New request with the approval-chain preview | `docs/screenshots/new-request.png` |
-| Request detail timeline | `docs/screenshots/request-timeline.png` |
-| Approval inbox with an overdue item | `docs/screenshots/inbox.png` |
-| Workflow builder | `docs/screenshots/workflow-builder.png` |
-| Audit log with an expanded diff | `docs/screenshots/audit-log.png` |
+| **Dashboard (admin)**: personal and organisation tiles, charts with table views<br>![Dashboard](docs/screenshots/dashboard.png) | **Approval inbox**: soonest due first, overdue highlighted<br>![Approval inbox](docs/screenshots/inbox.png) |
+| **New request** with the approval-chain preview<br>![New request](docs/screenshots/new-request.png) | **Request timeline**: who decided what, and when<br>![Request timeline](docs/screenshots/request-timeline.png) |
+| **Workflow builder**: reorder steps, pick approvers, set SLAs<br>![Workflow builder](docs/screenshots/workflow-builder.png) | **Audit log** with a field-by-field diff<br>![Audit log](docs/screenshots/audit-log.png) |
+| **Sign-in** with one-click demo accounts<br>![Sign in](docs/screenshots/login.png) | |
+
+Regenerate them from a seeded dev stack with `cd frontend && npm run screenshots` (uses your
+installed Chrome; see `frontend/scripts/screenshots.mjs`). The script also downloads the audit
+CSV through the real **Export CSV** button and checks its contents.
 
 ## Architecture
 
@@ -306,7 +307,9 @@ Postgres volume starts, and its schema is built by running the real migrations.
   browser ───────► frontend (nginx)
                      ├─ /            SPA (static files, index.html fallback, gzip, security headers)
                      └─ /api/*  ───► backend (Gunicorn, 4 workers, non-root) ──► postgres
-                                      scheduler (same image, RUN_SCHEDULER=1) ──┘
+                                      │       scheduler (same image, RUN_SCHEDULER=1) ──┘
+                                      └──► redis (rate-limit counters)
+  with docker-compose.tls.yml:  browser ─HTTPS:443─► caddy (Let's Encrypt, HSTS) ──► nginx ──► …
 ```
 
 ```bash
@@ -323,8 +326,20 @@ docker compose -f docker-compose.prod.yml up -d --build  # or build locally
   `frontend/nginx.conf`. Hashed assets are cached for a year; `index.html` is always revalidated.
 - `PROXY_FIX_HOPS=1` makes audit logs record the real client IP behind nginx. Production refuses
   to start with missing, short or placeholder secrets.
-- Put a TLS-terminating proxy or load balancer in front of port 80, then enable the HSTS line in
-  `frontend/nginx-security-headers.conf`.
+- **redis** holds the login rate-limit counters, so all Gunicorn workers share one limit.
+
+**HTTPS.** Point your domain's DNS at the server, set `SITE_ADDRESS` in `.env`, and add the TLS
+override:
+
+```bash
+docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml up -d
+```
+
+[Caddy](deploy/Caddyfile) then becomes the public entry point on ports 80/443. It obtains and
+renews a Let's Encrypt certificate automatically, redirects HTTP to HTTPS and sends HSTS. nginx
+stays behind it, unpublished. The backend trusts two proxies (`PROXY_FIX_HOPS=2`), so audit logs
+still record the real client IP. Keep the `caddy_data` volume: it holds the certificates. To try
+it locally, set `SITE_ADDRESS=localhost` and Caddy uses its own local certificate authority.
 
 ### CI/CD (`.github/workflows/ci.yml`)
 
@@ -348,6 +363,7 @@ All endpoints are under `/api` and use JSON. Errors look like
 | Endpoint | Who | Notes |
 |---|---|---|
 | `POST /auth/login`, `/auth/refresh`, `/auth/logout`, `GET /auth/me` | public / token | 15-min access and 7-day refresh tokens; logout revokes both; login is rate-limited with an account lockout |
+| `POST /auth/change-password` | signed in | `{current_password, new_password}`; returns fresh tokens and revokes every older one |
 | `POST /requests` | employee | `{application_id, access_level_id, justification, duration_days?}` |
 | `GET /requests` | any | own requests (auditors/admins: everyone's). Filters `status`, `application_id`, `requester_id`, `from`, `to`, `mine` |
 | `GET /requests/<id>` | requester, its approvers, auditor, admin | approval timeline + step list; 404 for anyone else |
@@ -376,7 +392,9 @@ backend/
     templates/email/ HTML + text email templates
   migrations/        Alembic migrations (incl. the audit-log append-only trigger)
   tests/             unit/ and integration/ suites (real Postgres)
+deploy/              Caddyfile (HTTPS edge for docker-compose.tls.yml)
 frontend/
+  scripts/           screenshots.mjs (README screenshots + CSV export check)
   src/api/           axios client (token refresh queue) and per-resource modules
   src/features/      auth, requests, approvals, applications, users, audit, dashboard
   src/components/    shared UI (DataTable, ProtectedRoute, Layout, modals, toasts, …)

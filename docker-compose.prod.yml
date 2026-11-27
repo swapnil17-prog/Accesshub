@@ -10,6 +10,10 @@
 #                (docker compose ... up -d --scale backend=3); nginx re-resolves it
 #   scheduler  - same image, RUN_SCHEDULER=1: the ONLY process that runs the background jobs
 #   frontend   - nginx serving the SPA and proxying /api to backend:8000, on port 80
+#   redis      - shared counter for the login rate limit (so all Gunicorn workers agree)
+#
+# HTTPS: add docker-compose.tls.yml (Caddy with automatic Let's Encrypt certificates):
+#   docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml up -d
 # Distinct from the dev stack (which Docker names "accesshub" after this folder), so the two
 # never share containers or the database volume.
 name: accesshub-prod
@@ -32,7 +36,8 @@ x-backend-env: &backend-env
   MAIL_USERNAME: ${MAIL_USERNAME:-}
   MAIL_PASSWORD: ${MAIL_PASSWORD:-}
   MAIL_DEFAULT_SENDER: ${MAIL_DEFAULT_SENDER:-AccessHub <no-reply@example.com>}
-  PROXY_FIX_HOPS: "1"  # exactly one trusted proxy: the nginx container
+  PROXY_FIX_HOPS: "1"  # exactly one trusted proxy: the nginx container (2 with the TLS override)
+  RATELIMIT_STORAGE_URI: redis://redis:6379/0
 
 services:
   postgres:
@@ -50,9 +55,21 @@ services:
       timeout: 5s
       retries: 20
 
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    # Only rate-limit counters live here; nothing needs to survive a restart.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   backend:
     <<: *backend-image
     restart: unless-stopped
+    init: true  # tiny init as PID 1 reaps stray processes (e.g. from `docker exec`), not Gunicorn
     environment:
       <<: *backend-env
       RUN_SCHEDULER: "0"
@@ -62,10 +79,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
 
   scheduler:
     <<: *backend-image
     restart: unless-stopped
+    init: true
     command: ["flask", "run-scheduler"]
     environment:
       <<: *backend-env

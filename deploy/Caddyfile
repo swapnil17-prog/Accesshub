@@ -1,0 +1,16 @@
+# HTTPS edge for AccessHub (used by docker-compose.tls.yml).
+#
+# Caddy obtains and renews a Let's Encrypt certificate for SITE_ADDRESS automatically (the
+# domain's DNS must point at this server and ports 80/443 must be reachable), redirects HTTP to
+# HTTPS, and forwards everything to the nginx container. For SITE_ADDRESS=localhost it uses its
+# own local certificate authority instead, which is handy for testing.
+
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	# HSTS belongs on the HTTPS edge: browsers then refuse plain HTTP for this site for a year.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+	# Sends X-Forwarded-For (the client) and X-Forwarded-Proto: https to nginx.
+	reverse_proxy frontend:80
+}

@@ -55,6 +55,20 @@ export const logout = createAsyncThunk('auth/logout', async () => {
   }
 });
 
+// On success the server revokes every older token, so store the fresh pair it returns.
+export const changePassword = createAsyncThunk(
+  'auth/changePassword',
+  async ({ currentPassword, newPassword }, { rejectWithValue }) => {
+    try {
+      const data = await authApi.changePassword(currentPassword, newPassword);
+      tokenStore.set({ access: data.access_token, refresh: data.refresh_token });
+      return data.message;
+    } catch (error) {
+      return rejectWithValue(toApiError(error));
+    }
+  },
+);
+
 const authSlice = createSlice({
   name: 'auth',
   initialState: makeInitialState,

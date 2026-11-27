@@ -111,7 +111,13 @@ export default function AccessLevelsEditor({ application, readOnly = false }) {
             maxLength={120}
             onChange={(e) => setNewName(e.target.value)}
           />
-          <Button type="submit" variant="secondary" disabled={!newName.trim()} loading={busy && !editing}>
+          <Button
+            type="submit"
+            variant="secondary"
+            className="shrink-0 whitespace-nowrap"
+            disabled={!newName.trim()}
+            loading={busy && !editing}
+          >
             Add level
           </Button>
         </form>

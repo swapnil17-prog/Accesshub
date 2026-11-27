@@ -58,6 +58,12 @@ def _login(client, org):
     )
 
 
+@case("POST", "/api/auth/change-password")
+def _change_password(client, org):
+    body = {"current_password": TEST_PASSWORD, "new_password": "Lighthouse#Blue7"}
+    return lambda: client.post("/api/auth/change-password", json=body, headers=auth(org.employee))
+
+
 @case("POST", "/api/auth/logout")
 def _logout(client, org):
     return lambda: client.post("/api/auth/logout", headers=auth(org.employee))

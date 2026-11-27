@@ -4,7 +4,7 @@ from flask import Blueprint, current_app, request
 from flask_jwt_extended import get_jwt, jwt_required
 
 from ..extensions import limiter
-from ..schemas.auth import LoginSchema, LogoutSchema
+from ..schemas.auth import ChangePasswordSchema, LoginSchema, LogoutSchema
 from ..schemas.user import UserSchema
 from ..services import auth as auth_service
 from ..utils.decorators import get_current_user
@@ -50,3 +50,13 @@ def logout():
 @jwt_required()
 def me():
     return _user_schema.dump(get_current_user())
+
+
+@auth_bp.post("/change-password")
+@limiter.limit(_login_limit)
+@jwt_required()
+def change_password():
+    """Change your own password. Signs out every other session; returns fresh tokens."""
+    data = load_json(ChangePasswordSchema())
+    tokens = auth_service.change_password(get_current_user(), data["current_password"], data["new_password"])
+    return {**tokens, "token_type": "Bearer", "message": "Password changed. Other sessions were signed out."}

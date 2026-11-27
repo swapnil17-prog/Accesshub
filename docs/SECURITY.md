@@ -74,10 +74,16 @@ by clients at all.
 - **Audit integrity:** an append-only Postgres trigger, plus a test that every mutating route
   writes an audit row (`tests/integration/test_audit_invariant.py`).
 
+### Follow-up hardening (after Phase 9)
+
+| # | Item | Done |
+|---|---|---|
+| 6 | Users couldn't change their own password. | `POST /api/auth/change-password` (current password required, policy applied, rate-limited). Wrong current password is a 422, not a 401, so the client doesn't treat it as an expired session. |
+| 7 | A changed or admin-reset password didn't end existing sessions. | `users.password_changed_at`: tokens issued before it are rejected as `TOKEN_REVOKED`. The user who changed it gets a fresh pair. |
+| 8 | The login rate limit was per Gunicorn worker (in-memory). | Production uses Redis (`RATELIMIT_STORAGE_URI=redis://redis:6379/0`), so all workers share one counter. If Redis is unreachable, requests are let through and logged (`RATELIMIT_SWALLOW_ERRORS`) rather than failing every sign-in; the Postgres-backed lockout still applies. |
+| 9 | No HTTPS. | `docker-compose.tls.yml` adds Caddy with automatic Let's Encrypt certificates, an HTTP→HTTPS redirect and HSTS. HSTS is sent only on HTTPS. |
+
 ## Known limitations
 
-- The per-IP limiter uses in-memory storage by default, so each Gunicorn worker counts
-  separately. Set `RATELIMIT_STORAGE_URI=redis://…` for one shared counter. The per-account
-  lockout is already shared, because it lives in the database.
 - An attacker could lock a *specific* account for 15 minutes by submitting wrong passwords for
   it. This is the usual lockout trade-off, and it's why the lock is temporary.

@@ -19,6 +19,7 @@ from ..models import AuditAction, AuditLog, TokenBlocklist, User
 from ..models.mixins import utcnow
 from ..models.user import hash_password
 from . import audit
+from .passwords import password_problems
 
 
 @cache
@@ -149,3 +150,34 @@ def logout(user: User, access_payload: dict[str, Any], refresh_token: str | None
 
     audit.log_action(user, AuditAction.LOGOUT, "user", user.id)
     db.session.commit()
+
+
+def change_password(user: User, current_password: str, new_password: str) -> dict[str, str]:
+    """The signed-in user changes their own password.
+
+    Errors are 422s (never 401: the frontend treats 401 as an expired session). On success every
+    existing token for the user stops working (``password_changed_at``) and a fresh token pair
+    is returned so the current browser stays signed in.
+    """
+    if not user.check_password(current_password):
+        audit.log_action(
+            user, AuditAction.PASSWORD_CHANGE_FAILED, "user", user.id, new={"reason": "bad_password"}
+        )
+        db.session.commit()
+        raise InvalidInputError(details={"current_password": ["Your current password is incorrect."]})
+    if new_password == current_password:
+        raise InvalidInputError(details={"new_password": ["Choose a new password, not your current one."]})
+    problems = password_problems(new_password, email=user.email, name=user.name)
+    if problems:
+        raise InvalidInputError("Password does not meet the policy", details={"new_password": problems})
+
+    user.set_password(new_password)
+    audit.log_action(
+        user,
+        AuditAction.PASSWORD_CHANGED,
+        "user",
+        user.id,
+        new={"by": "self", "other_sessions_revoked": True},
+    )
+    db.session.commit()
+    return issue_tokens(user)

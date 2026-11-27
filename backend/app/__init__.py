@@ -46,7 +46,9 @@ def create_app(config_name: str | None = None) -> Flask:
     if hops:
         # Behind nginx: trust X-Forwarded-For/Proto from that many proxies, so request.remote_addr
         # (recorded in audit logs) is the real client, not the proxy.
-        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=hops, x_proto=hops)
+        # X-Forwarded-For grows by one entry per proxy (client, caddy, ...), hence ``hops``;
+        # X-Forwarded-Proto is passed through unchanged by nginx, so it's always one value.
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=hops, x_proto=1)
 
     from . import models  # noqa: F401  (register all models on the metadata)
 

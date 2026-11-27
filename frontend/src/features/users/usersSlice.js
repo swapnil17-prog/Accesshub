@@ -10,6 +10,8 @@ export const fetchUsers = createAsyncThunk(
   withApiError(({ page = 1, filters = {} } = {}) => usersApi.listUsers({ page, perPage: USERS_PER_PAGE, filters })),
 );
 
+export const createUser = createAsyncThunk('users/create', withApiError((body) => usersApi.createUser(body)));
+
 /**
  * Save the edit modal: profile fields first (PUT /users/:id), then roles if they changed
  * (PUT /users/:id/roles). Returns the final user.

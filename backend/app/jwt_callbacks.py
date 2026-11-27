@@ -21,10 +21,15 @@ def register_jwt_callbacks(jwt: JWTManager) -> None:
 
     @jwt.token_in_blocklist_loader
     def is_revoked(_header: dict[str, Any], payload: dict[str, Any]) -> bool:
-        return (
-            db.session.scalar(select(TokenBlocklist.id).where(TokenBlocklist.jti == payload["jti"]))
-            is not None
-        )
+        """Revoked by logout (blocklist) or issued before the user's last password change."""
+        blocked = db.session.scalar(select(TokenBlocklist.id).where(TokenBlocklist.jti == payload["jti"]))
+        if blocked is not None:
+            return True
+        user = db.session.get(User, int(payload["sub"]))  # identity map: no extra query later
+        changed_at = user.password_changed_at if user is not None else None
+        # ``iat`` has whole-second precision, so compare at that precision: tokens issued in the
+        # same second as the change (the fresh ones returned by change-password) stay valid.
+        return changed_at is not None and payload.get("iat", 0) < int(changed_at.timestamp())
 
     @jwt.user_lookup_error_loader
     def user_lookup_error(_header, _payload):

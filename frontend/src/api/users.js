@@ -16,6 +16,12 @@ export async function lookupUsers(q) {
   return data.items;
 }
 
+/** Admin: create a user. body: { name, email, password, department?, manager_id?, roles? } */
+export async function createUser(body) {
+  const { data } = await client.post('/users', body);
+  return data;
+}
+
 export async function updateUser(id, changes) {
   const { data } = await client.put(`/users/${id}`, changes);
   return data;

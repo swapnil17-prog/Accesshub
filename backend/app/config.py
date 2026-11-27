@@ -48,11 +48,13 @@ class BaseConfig:
     PROXY_FIX_HOPS = int(os.environ.get("PROXY_FIX_HOPS", "0"))
 
     # Brute-force protection for sign-in.
-    # 1) Per-IP rate limit (Flask-Limiter). memory:// is per process, so with N Gunicorn workers
-    #    the effective limit is up to N times higher; point RATELIMIT_STORAGE_URI at Redis
-    #    (redis://host:6379) for one shared counter.
+    # 1) Per-IP rate limit (Flask-Limiter). memory:// is per process (fine for dev and tests);
+    #    production points RATELIMIT_STORAGE_URI at Redis so all workers share one counter.
     RATELIMIT_ENABLED = _bool("RATELIMIT_ENABLED", default=True)
     RATELIMIT_STORAGE_URI = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
+    # If the storage (Redis) is unreachable, let requests through and log it rather than failing
+    # every sign-in with a 500. The per-account lockout (in Postgres) still applies.
+    RATELIMIT_SWALLOW_ERRORS = _bool("RATELIMIT_SWALLOW_ERRORS", default=True)
     RATELIMIT_HEADERS_ENABLED = True
     LOGIN_RATE_LIMIT = os.environ.get("LOGIN_RATE_LIMIT", "10 per minute")
     # 2) Per-account lockout, counted from LOGIN_FAILED audit rows in the database, so it holds

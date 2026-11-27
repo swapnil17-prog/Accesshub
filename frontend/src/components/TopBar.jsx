@@ -47,16 +47,25 @@ export default function TopBar({ inboxCount, onOpenMenu }) {
       </Link>
 
       <div className="flex items-center gap-3 border-l border-slate-200 pl-3">
-        <span
-          className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-700"
-          aria-hidden="true"
+        <Link
+          to="/account"
+          className="flex min-w-0 items-center gap-3 rounded-md p-1 hover:bg-slate-100"
+          aria-label="Your account"
+          title="Your account"
         >
-          {initials(user?.name)}
-        </span>
-        <div className="hidden min-w-0 sm:block">
-          <p className="truncate text-sm font-medium text-slate-900">{user?.name}</p>
-          <p className="truncate text-xs text-slate-500">{visibleRoles.map((r) => ROLE_LABELS[r] ?? r).join(' · ')}</p>
-        </div>
+          <span
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-700"
+            aria-hidden="true"
+          >
+            {initials(user?.name)}
+          </span>
+          <span className="hidden min-w-0 sm:block">
+            <span className="block truncate text-sm font-medium text-slate-900">{user?.name}</span>
+            <span className="block truncate text-xs text-slate-500">
+              {visibleRoles.map((r) => ROLE_LABELS[r] ?? r).join(' · ')}
+            </span>
+          </span>
+        </Link>
         <button
           type="button"
           onClick={logout}

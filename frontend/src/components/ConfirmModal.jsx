@@ -22,17 +22,26 @@ export default function ConfirmModal({
 }) {
   const titleId = useId();
   const panelRef = useRef(null);
+  // Latest handler/state in refs, so the effects below run only when the dialog opens or
+  // closes. (Depending on an inline onCancel re-ran them on every render, which moved focus back
+  // to the first field after each keystroke.)
+  const latest = useRef({ onCancel, loading });
+  useEffect(() => {
+    latest.current = { onCancel, loading };
+  });
 
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (event) => {
-      if (event.key === 'Escape' && !loading) onCancel?.();
+      if (event.key === 'Escape' && !latest.current.loading) latest.current.onCancel?.();
     };
     document.addEventListener('keydown', onKey);
-    const first = panelRef.current?.querySelector('textarea, input, select, button');
-    first?.focus();
     return () => document.removeEventListener('keydown', onKey);
-  }, [open, loading, onCancel]);
+  }, [open]);
+
+  useEffect(() => {
+    if (open) panelRef.current?.querySelector('textarea, input, select, button')?.focus();
+  }, [open]);
 
   if (!open) return null;
 

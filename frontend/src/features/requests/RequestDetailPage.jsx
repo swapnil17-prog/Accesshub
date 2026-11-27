@@ -60,6 +60,13 @@ export default function RequestDetailPage() {
   if (!request || String(request.id) !== String(requestId)) return <FullPageSpinner label="Loading request" />;
 
   const isRequester = request.requester.id === user?.id;
+  const wasApprover = request.approvals.some((a) => a.approver.id === user?.id || a.escalated_from?.id === user?.id);
+  // Back to where this person most likely came from (auditors/admins browsing land on the dashboard).
+  const back = isRequester
+    ? { to: '/requests', label: 'My requests' }
+    : wasApprover
+      ? { to: '/approvals', label: 'Approval inbox' }
+      : { to: '/', label: 'Dashboard' };
   const myPending = request.approvals.find((a) => a.decision === 'PENDING' && a.approver.id === user?.id);
 
   async function doCancel() {
@@ -89,8 +96,8 @@ export default function RequestDetailPage() {
     <>
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <Link to={isRequester ? '/requests' : '/approvals'} className="text-sm text-indigo-600 hover:text-indigo-500">
-            ← {isRequester ? 'My requests' : 'Approval inbox'}
+          <Link to={back.to} className="text-sm text-indigo-600 hover:text-indigo-500">
+            ← {back.label}
           </Link>
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">

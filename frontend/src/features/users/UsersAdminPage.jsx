@@ -5,11 +5,12 @@ import Button from '../../components/Button';
 import DataTable from '../../components/DataTable';
 import EmptyState from '../../components/EmptyState';
 import { ErrorAlert, Select, TextInput } from '../../components/form';
-import { SearchIcon, UsersIcon } from '../../components/icons';
+import { PlusIcon, SearchIcon, UsersIcon } from '../../components/icons';
 import PageHeader from '../../components/PageHeader';
 import StatusBadge from '../../components/StatusBadge';
 import { useDebounce } from '../../hooks/useDebounce';
 import { ALL_ROLES, ROLE_LABELS } from '../../navigation';
+import CreateUserModal from './CreateUserModal';
 import EditUserModal from './EditUserModal';
 import { fetchUsers, selectUsers } from './usersSlice';
 
@@ -33,6 +34,7 @@ export default function UsersAdminPage() {
   const [active, setActive] = useState('');
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState(null);
+  const [creating, setCreating] = useState(false);
   const q = useDebounce(query.trim(), 300);
 
   useEffect(() => {
@@ -82,7 +84,16 @@ export default function UsersAdminPage() {
 
   return (
     <>
-      <PageHeader title="Users" description="Departments, reporting lines, roles and access to AccessHub." />
+      <PageHeader
+        title="Users"
+        description="Departments, reporting lines, roles and access to AccessHub."
+        actions={
+          <Button onClick={() => setCreating(true)}>
+            <PlusIcon className="h-4 w-4" />
+            New user
+          </Button>
+        }
+      />
       <div className="mb-4 grid gap-3 rounded-lg bg-white p-4 shadow-sm ring-1 ring-slate-200 sm:grid-cols-3">
         <div className="relative">
           <SearchIcon className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -122,6 +133,14 @@ export default function UsersAdminPage() {
         pagination={{ page: list.page, perPage: list.perPage, total: list.total, onPageChange: setPage }}
         empty={<EmptyState icon={UsersIcon} title="No users match" description="Try a different search or filter." />}
       />
+      {creating ? (
+        <CreateUserModal
+          onClose={(saved) => {
+            setCreating(false);
+            if (saved) dispatch(fetchUsers({ page, filters: { q, role, is_active: active } }));
+          }}
+        />
+      ) : null}
       {editing ? (
         <EditUserModal
           user={editing}

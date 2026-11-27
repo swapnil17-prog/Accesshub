@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from flask import current_app, has_app_context
-from sqlalchemy import CheckConstraint, ForeignKey, String, true
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from ..extensions import db
-from .mixins import TimestampMixin
+from .mixins import TimestampMixin, utcnow
 from .role import Role, user_roles
 
 
@@ -29,6 +31,9 @@ class User(TimestampMixin, db.Model):
     department: Mapped[str | None] = mapped_column(String(120))
     manager_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
     is_active: Mapped[bool] = mapped_column(default=True, server_default=true())
+    # Tokens issued before this moment are rejected (see jwt_callbacks.is_revoked), so changing or
+    # resetting a password signs the user out of every other session.
+    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     manager: Mapped[User | None] = relationship(remote_side="User.id", back_populates="reports")
     reports: Mapped[list[User]] = relationship(back_populates="manager")
@@ -41,6 +46,7 @@ class User(TimestampMixin, db.Model):
 
     def set_password(self, password: str) -> None:
         self.password_hash = hash_password(password)
+        self.password_changed_at = utcnow()
 
     def check_password(self, password: str) -> bool:
         return check_password_hash(self.password_hash, password)
